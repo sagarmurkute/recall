@@ -16,6 +16,9 @@ pub struct SmartContext {
     pub category_or_domain: Option<String>,
     pub context_item: Option<String>,
     pub item_type: Option<String>,
+    pub friendly_verb: String,
+    pub friendly_summary: String,
+    pub icon: &'static str,
 }
 
 /// Extract clean contextual domain/project/file and categories from raw window title
@@ -29,6 +32,9 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
             category_or_domain: None, 
             context_item: None,
             item_type: None,
+            friendly_verb: "Using".to_string(),
+            friendly_summary: format!("Using {}", app_name),
+            icon: "💻",
         },
     };
 
@@ -39,43 +45,66 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
         let title_lower = title.to_lowercase();
         let mut domain = None;
         let mut subcat = "Web Page";
+        let mut verb = "Browsing";
+        let mut icon = "🌐";
 
         if title_lower.contains("youtube") {
             domain = Some("youtube.com".to_string());
-            subcat = "Video / Media";
+            subcat = "Video";
+            verb = "Watching Video";
+            icon = "🎬";
         } else if title_lower.contains("github") {
             domain = Some("github.com".to_string());
             subcat = "Code Repository";
+            verb = "Viewing Code on GitHub";
+            icon = "🐙";
         } else if title_lower.contains("chatgpt") || title_lower.contains("openai") || title_lower.contains("claude") || title_lower.contains("gemini") {
             domain = Some("ai-assistant".to_string());
             subcat = "AI Assistant";
+            verb = "Chatting with AI";
+            icon = "🤖";
         } else if title_lower.contains("docs.google") || title_lower.contains("google docs") {
             domain = Some("docs.google.com".to_string());
             subcat = "Document";
+            verb = "Writing in Google Docs";
+            icon = "📝";
         } else if title_lower.contains("sheets.google") || title_lower.contains("google sheets") {
             domain = Some("sheets.google.com".to_string());
             subcat = "Spreadsheet";
+            verb = "Editing Google Sheet";
+            icon = "📊";
         } else if title_lower.contains("notion") {
             domain = Some("notion.so".to_string());
-            subcat = "Workspace Notes";
+            subcat = "Notes";
+            verb = "Taking Notes in Notion";
+            icon = "📓";
         } else if title_lower.contains("figma") {
             domain = Some("figma.com".to_string());
-            subcat = "UI/UX Design";
+            subcat = "Design";
+            verb = "Designing in Figma";
+            icon = "🎨";
         } else if title_lower.contains("stackoverflow") || title_lower.contains("stack overflow") {
             domain = Some("stackoverflow.com".to_string());
             subcat = "Technical Q&A";
+            verb = "Reading Solution on Stack Overflow";
+            icon = "💡";
         } else if title_lower.contains("reddit") {
             domain = Some("reddit.com".to_string());
             subcat = "Discussion";
+            verb = "Reading Reddit Post";
+            icon = "💬";
         } else if title_lower.contains("twitter") || title_lower.contains("x.com") {
             domain = Some("x.com".to_string());
             subcat = "Social";
+            verb = "Browsing X (Twitter)";
+            icon = "🐦";
         } else if title_lower.contains("linkedin") {
             domain = Some("linkedin.com".to_string());
             subcat = "Professional";
+            verb = "Browsing LinkedIn";
+            icon = "💼";
         }
 
-        // Clean out trailing browser suffixes (e.g. " - Google Chrome")
         let clean_title = title
             .trim_end_matches(" - Google Chrome")
             .trim_end_matches(" - Microsoft​ Edge")
@@ -86,12 +115,21 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
         let parts: Vec<&str> = clean_title.split(|c| c == '-' || c == '—' || c == '|').map(|s| s.trim()).collect();
         let main_topic = if !parts.is_empty() { parts[0].to_string() } else { clean_title.to_string() };
 
+        let summary = if let Some(ref d) = domain {
+            format!("{} \"{}\" on {}", verb, main_topic, d)
+        } else {
+            format!("{} \"{}\"", verb, main_topic)
+        };
+
         return SmartContext {
             title: Some(clean_title.to_string()),
             category: "Browsing".to_string(),
             category_or_domain: domain,
             context_item: Some(main_topic),
             item_type: Some(subcat.to_string()),
+            friendly_verb: verb.to_string(),
+            friendly_summary: summary,
+            icon,
         };
     }
 
@@ -105,29 +143,34 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
         let file_or_tab = if !parts.is_empty() { parts[0].to_string() } else { clean.to_string() };
         let workspace = if parts.len() > 1 { Some(parts[1].to_string()) } else { None };
 
-        // Determine file language / type
-        let lang = if file_or_tab.ends_with(".rs") {
-            Some("Rust")
+        let (lang, icon) = if file_or_tab.ends_with(".rs") {
+            (Some("Rust"), "🦀")
         } else if file_or_tab.ends_with(".ts") || file_or_tab.ends_with(".tsx") {
-            Some("TypeScript / React")
+            (Some("TypeScript / React"), "⚛️")
         } else if file_or_tab.ends_with(".js") || file_or_tab.ends_with(".jsx") {
-            Some("JavaScript")
+            (Some("JavaScript"), "🟨")
         } else if file_or_tab.ends_with(".py") {
-            Some("Python")
+            (Some("Python"), "🐍")
         } else if file_or_tab.ends_with(".go") {
-            Some("Go")
+            (Some("Go"), "🐹")
         } else if file_or_tab.ends_with(".cpp") || file_or_tab.ends_with(".c") || file_or_tab.ends_with(".h") {
-            Some("C/C++")
+            (Some("C/C++"), "⚙️")
         } else if file_or_tab.ends_with(".html") || file_or_tab.ends_with(".css") {
-            Some("HTML / CSS")
+            (Some("HTML/CSS"), "🎨")
         } else if file_or_tab.ends_with(".json") || file_or_tab.ends_with(".toml") || file_or_tab.ends_with(".yaml") || file_or_tab.ends_with(".yml") {
-            Some("Config")
+            (Some("Config File"), "⚙️")
         } else if file_or_tab.ends_with(".md") {
-            Some("Markdown / Docs")
+            (Some("Markdown Notes"), "📝")
         } else if file_or_tab.ends_with(".sql") {
-            Some("SQL Database")
+            (Some("SQL Database"), "🗄️")
         } else {
-            Some("Source Code")
+            (Some("Source Code"), "💻")
+        };
+
+        let summary = if let Some(ref ws) = workspace {
+            format!("Editing \"{}\" in project {}", file_or_tab, ws)
+        } else {
+            format!("Editing file \"{}\"", file_or_tab)
         };
 
         return SmartContext {
@@ -136,17 +179,23 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
             category_or_domain: workspace,
             context_item: Some(file_or_tab),
             item_type: lang.map(|s| s.to_string()),
+            friendly_verb: "Coding".to_string(),
+            friendly_summary: summary,
+            icon,
         };
     }
 
-    // 3. Command Line & Terminals (Windows Terminal, PowerShell, CMD, Git Bash)
+    // 3. Command Line & Terminals
     if app_lower.contains("windowsterminal") || app_lower.contains("powershell") || app_lower.contains("cmd.exe") || app_lower.contains("bash") || app_lower.contains("mintty") {
         return SmartContext {
             title: Some(title.to_string()),
             category: "Terminal".to_string(),
-            category_or_domain: Some("CLI / Shell".to_string()),
+            category_or_domain: Some("Terminal".to_string()),
             context_item: Some(title.to_string()),
-            item_type: Some("Terminal Session".to_string()),
+            item_type: Some("Terminal".to_string()),
+            friendly_verb: "Running Commands".to_string(),
+            friendly_summary: format!("Terminal: {}", title),
+            icon: "⚡",
         };
     }
 
@@ -155,9 +204,12 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
         return SmartContext {
             title: Some(title.to_string()),
             category: "Files".to_string(),
-            category_or_domain: Some("File Explorer".to_string()),
+            category_or_domain: Some("Files".to_string()),
             context_item: Some(title.to_string()),
-            item_type: Some("Directory".to_string()),
+            item_type: Some("Folder".to_string()),
+            friendly_verb: "Looking at Files".to_string(),
+            friendly_summary: format!("Browsing \"{}\" folder", title),
+            icon: "📁",
         };
     }
 
@@ -166,9 +218,12 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
         return SmartContext {
             title: Some(title.to_string()),
             category: "Documents".to_string(),
-            category_or_domain: Some("Office Document".to_string()),
+            category_or_domain: Some("Document".to_string()),
             context_item: Some(title.to_string()),
             item_type: Some("Document".to_string()),
+            friendly_verb: "Reading / Writing".to_string(),
+            friendly_summary: format!("Working on document \"{}\"", title),
+            icon: "📄",
         };
     }
 
@@ -179,7 +234,24 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
             category: "Communication".to_string(),
             category_or_domain: Some(app_name.to_string()),
             context_item: Some(title.to_string()),
-            item_type: Some("Chat / Channel".to_string()),
+            item_type: Some("Chat".to_string()),
+            friendly_verb: "Messaging".to_string(),
+            friendly_summary: format!("Chatting in {}", title),
+            icon: "💬",
+        };
+    }
+
+    // 7. Media & Music (Spotify, VLC, Windows Media)
+    if app_lower.contains("spotify") || app_lower.contains("vlc") {
+        return SmartContext {
+            title: Some(title.to_string()),
+            category: "Media".to_string(),
+            category_or_domain: Some(app_name.to_string()),
+            context_item: Some(title.to_string()),
+            item_type: Some("Music / Video".to_string()),
+            friendly_verb: "Listening / Watching".to_string(),
+            friendly_summary: format!("Playing \"{}\"", title),
+            icon: "🎵",
         };
     }
 
@@ -190,6 +262,9 @@ pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartCont
         category_or_domain: None,
         context_item: Some(title.to_string()),
         item_type: None,
+        friendly_verb: "Using".to_string(),
+        friendly_summary: format!("Working in {}", title),
+        icon: "💻",
     }
 }
 

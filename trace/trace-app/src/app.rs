@@ -23,7 +23,7 @@ pub struct TraceApp {
     is_recording: Arc<AtomicBool>,
     active_tab: ActiveTab,
 
-    // Timeline state
+    // Timeline & Search state
     search_query: String,
     selected_app_filter: String,
     available_apps: Vec<String>,
@@ -67,17 +67,18 @@ impl TraceApp {
         let privacy = Arc::new(Mutex::new(privacy_controller));
         let is_recording = Arc::new(AtomicBool::new(true));
 
-        // Log clean session startup event
+        // Log session startup marker
         let mut startup_event = ActivityEvent::new_app_focus(
             "Trace".to_string(),
-            Some("Trace Session Started".to_string()),
+            Some("Trace Started Recording".to_string()),
             None,
         );
         startup_event.event_type = "session_lifecycle".to_string();
         startup_event.metadata = serde_json::json!({
             "category": "System",
             "item_type": "Session Lifecycle",
-            "lifecycle": "start"
+            "friendly_summary": "Trace started recording your activity memory",
+            "icon": "🟢"
         });
         db.insert_event(&startup_event).ok();
 
@@ -103,7 +104,7 @@ impl TraceApp {
                     continue;
                 }
 
-                // Check idle duration (pause accumulation if idle > 2 minutes)
+                // Pause accumulation if AFK / idle > 2 minutes
                 let idle_secs = get_idle_duration_secs();
                 if idle_secs > 120 {
                     continue;
@@ -150,6 +151,9 @@ impl TraceApp {
                             "context_item": smart.context_item,
                             "item_type": smart.item_type,
                             "domain_or_workspace": smart.category_or_domain,
+                            "friendly_verb": smart.friendly_verb,
+                            "friendly_summary": smart.friendly_summary,
+                            "icon": smart.icon,
                         });
 
                         if let Ok(()) = db_clone.insert_event(&new_event) {
@@ -221,6 +225,29 @@ impl TraceApp {
             format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
         }
     }
+
+    fn format_relative_time(timestamp_str: &str) -> (String, String) {
+        if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp_str) {
+            let now = chrono::Utc::now();
+            let diff = now.signed_duration_since(dt.with_timezone(&chrono::Utc));
+            let secs = diff.num_seconds();
+            let exact = dt.format("%I:%M %p").to_string();
+
+            let relative = if secs < 45 {
+                "Just now".to_string()
+            } else if secs < 3600 {
+                format!("{}m ago", (secs / 60).max(1))
+            } else if secs < 86400 {
+                format!("{}h ago", secs / 3600)
+            } else {
+                dt.format("%b %d").to_string()
+            };
+
+            (relative, exact)
+        } else {
+            ("Recent".to_string(), timestamp_str.to_string())
+        }
+    }
 }
 
 impl Drop for TraceApp {
@@ -228,14 +255,15 @@ impl Drop for TraceApp {
         // Record session closed lifecycle event on exit
         let mut close_event = ActivityEvent::new_app_focus(
             "Trace".to_string(),
-            Some("Trace Session Closed".to_string()),
+            Some("Trace Stopped Recording".to_string()),
             None,
         );
         close_event.event_type = "session_lifecycle".to_string();
         close_event.metadata = serde_json::json!({
             "category": "System",
             "item_type": "Session Lifecycle",
-            "lifecycle": "stop"
+            "friendly_summary": "Trace stopped recording",
+            "icon": "🔴"
         });
         self.db.insert_event(&close_event).ok();
     }
@@ -254,36 +282,40 @@ impl eframe::App for TraceApp {
             // ==========================================
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("TRACE").strong().size(22.0).color(Color32::from_rgb(15, 23, 42)));
-                ui.label(RichText::new("v0.2.0").small().color(Color32::from_rgb(148, 163, 184)));
+                ui.label(RichText::new("Your Activity Memory").small().color(Color32::from_rgb(100, 116, 139)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let recording = self.is_recording.load(Ordering::Relaxed);
                     if !recording {
                         ui.label(RichText::new("⏸ Paused").color(Color32::from_rgb(217, 119, 6)).strong().size(13.0));
                     } else if self.is_idle {
-                        ui.label(RichText::new("💤 Idle (AFK)").color(Color32::from_rgb(100, 116, 139)).strong().size(13.0));
+                        ui.label(RichText::new("💤 Idle / Away").color(Color32::from_rgb(100, 116, 139)).strong().size(13.0));
                     } else {
-                        ui.label(RichText::new("● Recording").color(Color32::from_rgb(22, 163, 74)).strong().size(13.0));
+                        ui.label(RichText::new("● Remembering").color(Color32::from_rgb(22, 163, 74)).strong().size(13.0));
                     }
                 });
             });
 
             ui.add_space(4.0);
 
-            // Active Window Pill
+            // ==========================================
+            // "WHERE YOU LEFT OFF" (MEMORY ANCHOR)
+            // ==========================================
             if let Some(curr) = &self.current_window {
+                let smart = parse_smart_context(&curr.application, curr.window_title.as_deref());
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(241, 245, 249))
-                    .rounding(6.0)
-                    .inner_margin(6.0)
+                    .fill(Color32::from_rgb(238, 242, 255))
+                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(199, 210, 254)))
+                    .rounding(8.0)
+                    .inner_margin(10.0)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("CURRENT FOCUS:").small().strong().color(Color32::from_rgb(100, 116, 139)));
-                            ui.label(RichText::new(&curr.application).strong().small().color(Color32::from_rgb(37, 99, 235)));
-                            if let Some(title) = &curr.window_title {
-                                let clean = if title.len() > 45 { format!("{}...", &title[..42]) } else { title.clone() };
-                                ui.label(RichText::new(format!("— {}", clean)).small().color(Color32::from_rgb(51, 65, 85)));
-                            }
+                            ui.label(RichText::new(smart.icon).size(18.0));
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new("WHERE YOU ARE RIGHT NOW:").small().strong().color(Color32::from_rgb(79, 70, 229)));
+                                ui.label(RichText::new(&smart.friendly_summary).strong().size(13.0).color(Color32::from_rgb(30, 27, 75)));
+                                ui.label(RichText::new(format!("In application: {}", curr.application)).small().color(Color32::from_rgb(100, 116, 139)));
+                            });
                         });
                     });
             }
@@ -295,7 +327,7 @@ impl eframe::App for TraceApp {
             // ==========================================
             ui.horizontal(|ui| {
                 let recording = self.is_recording.load(Ordering::Relaxed);
-                let btn_text = if recording { "⏸ Pause" } else { "▶ Resume" };
+                let btn_text = if recording { "⏸ Pause Memory" } else { "▶ Resume Memory" };
                 let btn_color = if recording { Color32::from_rgb(254, 242, 242) } else { Color32::from_rgb(240, 253, 244) };
                 let text_color = if recording { Color32::from_rgb(185, 28, 28) } else { Color32::from_rgb(21, 128, 61) };
 
@@ -308,10 +340,10 @@ impl eframe::App for TraceApp {
 
                 ui.separator();
 
-                ui.selectable_value(&mut self.active_tab, ActiveTab::Timeline, "🕒 Timeline");
-                ui.selectable_value(&mut self.active_tab, ActiveTab::Analytics, "📊 Analytics");
+                ui.selectable_value(&mut self.active_tab, ActiveTab::Timeline, "🕒 Activity Timeline");
+                ui.selectable_value(&mut self.active_tab, ActiveTab::Analytics, "📊 Time Spent");
                 ui.selectable_value(&mut self.active_tab, ActiveTab::Privacy, "🛡 Privacy");
-                ui.selectable_value(&mut self.active_tab, ActiveTab::Export, "💾 Data & Export");
+                ui.selectable_value(&mut self.active_tab, ActiveTab::Export, "💾 Data");
             });
 
             ui.separator();
@@ -322,17 +354,19 @@ impl eframe::App for TraceApp {
             // ==========================================
             match self.active_tab {
                 // ------------------------------------------
-                // TAB 1: TIMELINE & SEARCH
+                // TAB 1: TIMELINE & SEARCH (MEMORY RECALL)
                 // ------------------------------------------
                 ActiveTab::Timeline => {
                     // Search and Filter Bar
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("🔍").size(13.0));
-                        ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text("Search activities or titles...").desired_width(180.0));
+                        ui.label(RichText::new("🔍").size(14.0));
+                        ui.add(egui::TextEdit::singleline(&mut self.search_query)
+                            .hint_text("Search what you remember (e.g. video, notes, code, pdf)...")
+                            .desired_width(220.0));
 
                         egui::ComboBox::from_id_salt("app_filter")
                             .selected_text(&self.selected_app_filter)
-                            .width(120.0)
+                            .width(130.0)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.selected_app_filter, "All Apps".to_string(), "All Apps");
                                 for app in &self.available_apps {
@@ -345,17 +379,17 @@ impl eframe::App for TraceApp {
 
                     // Quick deletion toolbar
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("Today: {} events", self.today_count)).small().color(Color32::from_rgb(71, 85, 105)));
+                        ui.label(RichText::new(format!("Today: {} memory encounters", self.today_count)).small().color(Color32::from_rgb(71, 85, 105)));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.small_button(RichText::new("Clear All").color(Color32::from_rgb(220, 38, 38))).clicked() {
                                 self.db.clear_all().ok();
                                 self.events.clear();
                                 self.today_count = 0;
                             }
-                            if ui.small_button(RichText::new("Delete Last 1h").color(Color32::from_rgb(180, 83, 9))).clicked() {
+                            if ui.small_button(RichText::new("Forget Last 1 hour").color(Color32::from_rgb(180, 83, 9))).clicked() {
                                 self.db.delete_events_since(3600).ok();
                             }
-                            if ui.small_button(RichText::new("Delete Last 15m").color(Color32::from_rgb(180, 83, 9))).clicked() {
+                            if ui.small_button(RichText::new("Forget Last 15 mins").color(Color32::from_rgb(180, 83, 9))).clicked() {
                                 self.db.delete_events_since(900).ok();
                             }
                         });
@@ -366,13 +400,13 @@ impl eframe::App for TraceApp {
                     // Event Feed
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .max_height(440.0)
+                        .max_height(410.0)
                         .show(ui, |ui| {
                             if self.events.is_empty() {
-                                ui.add_space(50.0);
+                                ui.add_space(40.0);
                                 ui.vertical_centered(|ui| {
-                                    ui.label(RichText::new("No matching activities found").color(Color32::from_rgb(148, 163, 184)));
-                                    ui.label(RichText::new("Switch windows or adjust filters").small().color(Color32::from_rgb(203, 213, 225)));
+                                    ui.label(RichText::new("💡 No matching activities found").strong().color(Color32::from_rgb(100, 116, 139)));
+                                    ui.label(RichText::new("Try typing a simpler word like 'youtube', 'notes', or clear your search").small().color(Color32::from_rgb(148, 163, 184)));
                                 });
                             } else {
                                 let mut to_delete = None;
@@ -391,13 +425,12 @@ impl eframe::App for TraceApp {
                                                 ui.horizontal(|ui| {
                                                     let is_start = event.window_title.as_deref().unwrap_or("").contains("Started");
                                                     let icon = if is_start { "🟢" } else { "🔴" };
-                                                    ui.label(RichText::new(format!("{} {}", icon, event.window_title.as_deref().unwrap_or("Session Event"))).small().strong().color(Color32::from_rgb(71, 85, 105)));
+                                                    let title = event.window_title.as_deref().unwrap_or("Trace Session");
+                                                    ui.label(RichText::new(format!("{} {}", icon, title)).small().strong().color(Color32::from_rgb(71, 85, 105)));
 
                                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                        let time_str = DateTime::parse_from_rfc3339(&event.timestamp)
-                                                            .map(|dt| dt.format("%I:%M %p").to_string())
-                                                            .unwrap_or_else(|_| event.timestamp.clone());
-                                                        ui.label(RichText::new(time_str).small().color(Color32::from_rgb(148, 163, 184)));
+                                                        let (rel, exact) = Self::format_relative_time(&event.timestamp);
+                                                        ui.label(RichText::new(format!("{} ({})", rel, exact)).small().color(Color32::from_rgb(148, 163, 184)));
                                                     });
                                                 });
                                             });
@@ -405,59 +438,59 @@ impl eframe::App for TraceApp {
                                         continue;
                                     }
 
-                                    // Standard activity card
+                                    // Extract friendly metadata
+                                    let icon = event.metadata.get("icon").and_then(|v| v.as_str()).unwrap_or("💻");
+                                    let summary = event.metadata.get("friendly_summary").and_then(|v| v.as_str())
+                                        .unwrap_or_else(|| event.window_title.as_deref().unwrap_or(&event.application));
                                     let item_type = event.metadata.get("item_type").and_then(|v| v.as_str());
-                                    let context_item = event.metadata.get("context_item").and_then(|v| v.as_str());
                                     let domain_or_ws = event.metadata.get("domain_or_workspace").and_then(|v| v.as_str());
+
+                                    let (rel_time, exact_time) = Self::format_relative_time(&event.timestamp);
 
                                     egui::Frame::none()
                                         .fill(Color32::WHITE)
-                                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(241, 245, 249)))
-                                        .rounding(6.0)
-                                        .inner_margin(8.0)
+                                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(226, 232, 240)))
+                                        .rounding(8.0)
+                                        .inner_margin(10.0)
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
-                                                ui.label(RichText::new(&event.application).strong().size(12.0).color(Color32::from_rgb(37, 99, 235)));
+                                                ui.label(RichText::new(icon).size(16.0));
                                                 
-                                                if let Some(t) = item_type {
-                                                    ui.label(RichText::new(format!("[{}]", t)).small().color(Color32::from_rgb(124, 58, 237)));
-                                                }
+                                                ui.vertical(|ui| {
+                                                    // Top line: Human friendly sentence
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(RichText::new(summary).strong().size(12.5).color(Color32::from_rgb(15, 23, 42)));
+                                                        
+                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                            if ui.small_button(RichText::new("✕").color(Color32::from_rgb(156, 163, 175))).on_hover_text("Forget this event").clicked() {
+                                                                to_delete = Some(event.id.clone());
+                                                            }
+                                                            ui.label(RichText::new(format!("{} ({})", rel_time, exact_time)).small().color(Color32::from_rgb(100, 116, 139)));
+                                                        });
+                                                    });
 
-                                                if event.duration_seconds > 0 {
-                                                    ui.label(RichText::new(format!("• {}", Self::format_duration(event.duration_seconds))).small().color(Color32::from_rgb(100, 116, 139)));
-                                                }
+                                                    ui.add_space(2.0);
 
-                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                    if ui.small_button(RichText::new("×").color(Color32::from_rgb(156, 163, 175))).clicked() {
-                                                        to_delete = Some(event.id.clone());
-                                                    }
+                                                    // Bottom line: App details, duration and badges
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(RichText::new(format!("In {}", event.application)).small().color(Color32::from_rgb(71, 85, 105)));
 
-                                                    let time_str = DateTime::parse_from_rfc3339(&event.timestamp)
-                                                        .map(|dt| dt.format("%I:%M %p").to_string())
-                                                        .unwrap_or_else(|_| event.timestamp.clone());
-                                                    ui.label(RichText::new(time_str).small().color(Color32::from_rgb(148, 163, 184)));
+                                                        if event.duration_seconds > 0 {
+                                                            ui.label(RichText::new(format!("• Spent {}", Self::format_duration(event.duration_seconds))).small().color(Color32::from_rgb(37, 99, 235)));
+                                                        }
+
+                                                        if let Some(t) = item_type {
+                                                            ui.label(RichText::new(format!("• [{}]", t)).small().color(Color32::from_rgb(124, 58, 237)));
+                                                        }
+
+                                                        if let Some(url) = &event.url {
+                                                            ui.label(RichText::new(format!("• 🌐 {}", url)).small().color(Color32::from_rgb(16, 185, 129)));
+                                                        } else if let Some(ws) = domain_or_ws {
+                                                            ui.label(RichText::new(format!("• 📦 {}", ws)).small().color(Color32::from_rgb(79, 70, 229)));
+                                                        }
+                                                    });
                                                 });
                                             });
-
-                                            // Main Context/File/Topic
-                                            if let Some(item) = context_item {
-                                                ui.add_space(2.0);
-                                                ui.label(RichText::new(item).strong().size(11.0).color(Color32::from_rgb(30, 41, 59)));
-                                            } else if let Some(title) = &event.window_title {
-                                                ui.add_space(2.0);
-                                                ui.label(RichText::new(title).size(11.0).color(Color32::from_rgb(71, 85, 105)));
-                                            }
-
-                                            // Subtitle / URL / Workspace
-                                            if let Some(url) = &event.url {
-                                                ui.horizontal(|ui| {
-                                                    ui.label(RichText::new(format!("🌐 {}", url)).small().color(Color32::from_rgb(16, 185, 129)));
-                                                });
-                                            } else if let Some(ws) = domain_or_ws {
-                                                ui.horizontal(|ui| {
-                                                    ui.label(RichText::new(format!("📦 {}", ws)).small().color(Color32::from_rgb(100, 116, 139)));
-                                                });
-                                            }
                                         });
                                     ui.add_space(4.0);
                                 }
@@ -470,11 +503,11 @@ impl eframe::App for TraceApp {
                 }
 
                 // ------------------------------------------
-                // TAB 2: APP USAGE ANALYTICS
+                // TAB 2: TIME SPENT & SUMMARY
                 // ------------------------------------------
                 ActiveTab::Analytics => {
-                    ui.label(RichText::new("Today's Application Time Breakdown").strong().size(14.0).color(Color32::from_rgb(15, 23, 42)));
-                    ui.label(RichText::new("Calculated from active foreground duration (idle time excluded)").small().color(Color32::from_rgb(100, 116, 139)));
+                    ui.label(RichText::new("Today's Screen Time Summary").strong().size(14.0).color(Color32::from_rgb(15, 23, 42)));
+                    ui.label(RichText::new("See how much time you spent in each application today (away/idle time is paused)").small().color(Color32::from_rgb(100, 116, 139)));
                     ui.add_space(8.0);
 
                     let total_secs: u32 = self.app_stats.iter().map(|s| s.total_seconds).sum();
@@ -486,7 +519,7 @@ impl eframe::App for TraceApp {
                         .inner_margin(10.0)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("Total Active Focus:").size(13.0).color(Color32::from_rgb(71, 85, 105)));
+                                ui.label(RichText::new("Total Active Time Today:").size(13.0).color(Color32::from_rgb(71, 85, 105)));
                                 ui.label(RichText::new(Self::format_duration(total_secs)).strong().size(14.0).color(Color32::from_rgb(37, 99, 235)));
                             });
                         });
@@ -498,7 +531,7 @@ impl eframe::App for TraceApp {
                         .max_height(380.0)
                         .show(ui, |ui| {
                             if self.app_stats.is_empty() {
-                                ui.label("No statistics available yet today.");
+                                ui.label("No activities recorded yet today.");
                             } else {
                                 for stat in &self.app_stats {
                                     let pct = if total_secs > 0 { (stat.total_seconds as f32 / total_secs as f32) * 100.0 } else { 0.0 };
@@ -517,7 +550,6 @@ impl eframe::App for TraceApp {
                                             });
 
                                             ui.add_space(3.0);
-                                            // Progress visual bar
                                             let bar = egui::ProgressBar::new(pct / 100.0)
                                                 .show_percentage()
                                                 .fill(Color32::from_rgb(59, 130, 246));
@@ -530,11 +562,11 @@ impl eframe::App for TraceApp {
                 }
 
                 // ------------------------------------------
-                // TAB 3: PRIVACY & EXCLUSION RULES
+                // TAB 3: PRIVACY & EXCLUSIONS
                 // ------------------------------------------
                 ActiveTab::Privacy => {
-                    ui.label(RichText::new("Exclusion Rules & Filters").strong().size(14.0).color(Color32::from_rgb(15, 23, 42)));
-                    ui.label(RichText::new("Trace will never record or log activities matching these apps or titles.").small().color(Color32::from_rgb(100, 116, 139)));
+                    ui.label(RichText::new("Privacy Rules & Ignored Apps").strong().size(14.0).color(Color32::from_rgb(15, 23, 42)));
+                    ui.label(RichText::new("Trace will never log anything from these apps or matching titles.").small().color(Color32::from_rgb(100, 116, 139)));
                     ui.add_space(8.0);
 
                     // Add Excluded App
@@ -617,8 +649,8 @@ impl eframe::App for TraceApp {
                 // TAB 4: DATA & EXPORT
                 // ------------------------------------------
                 ActiveTab::Export => {
-                    ui.label(RichText::new("Local Data Ownership & Export").strong().size(14.0).color(Color32::from_rgb(15, 23, 42)));
-                    ui.label(RichText::new("Your activity memory is stored entirely on your local machine in SQLite.").small().color(Color32::from_rgb(100, 116, 139)));
+                    ui.label(RichText::new("Your Data Stays On Your Computer").strong().size(14.0).color(Color32::from_rgb(15, 23, 42)));
+                    ui.label(RichText::new("All memory is stored on your local disk in a private SQLite database.").small().color(Color32::from_rgb(100, 116, 139)));
                     ui.add_space(8.0);
 
                     egui::Frame::none()
@@ -627,16 +659,16 @@ impl eframe::App for TraceApp {
                         .rounding(8.0)
                         .inner_margin(10.0)
                         .show(ui, |ui| {
-                            ui.label(RichText::new("SQLite Database Location:").strong().small().color(Color32::from_rgb(71, 85, 105)));
+                            ui.label(RichText::new("Database Location:").strong().small().color(Color32::from_rgb(71, 85, 105)));
                             ui.label(RichText::new(self.db.db_path.to_string_lossy()).small().color(Color32::from_rgb(30, 41, 59)));
                             ui.add_space(4.0);
-                            ui.label(RichText::new(format!("Total Recorded Events: {}", self.today_count)).small().color(Color32::from_rgb(100, 116, 139)));
+                            ui.label(RichText::new(format!("Total Memories Stored: {}", self.today_count)).small().color(Color32::from_rgb(100, 116, 139)));
                         });
 
                     ui.add_space(10.0);
 
                     ui.horizontal(|ui| {
-                        if ui.button(RichText::new("📄 Export JSON").strong()).clicked() {
+                        if ui.button(RichText::new("📄 Export to JSON").strong()).clicked() {
                             if let Ok(json) = self.db.export_events_json() {
                                 let export_path = self.db.db_path.with_file_name("trace_export.json");
                                 if std::fs::write(&export_path, json).is_ok() {
@@ -645,7 +677,7 @@ impl eframe::App for TraceApp {
                             }
                         }
 
-                        if ui.button(RichText::new("📊 Export CSV").strong()).clicked() {
+                        if ui.button(RichText::new("📊 Export to CSV (Spreadsheet)").strong()).clicked() {
                             if let Ok(csv) = self.db.export_events_csv() {
                                 let export_path = self.db.db_path.with_file_name("trace_export.csv");
                                 if std::fs::write(&export_path, csv).is_ok() {
@@ -664,12 +696,12 @@ impl eframe::App for TraceApp {
                     ui.separator();
                     ui.add_space(8.0);
 
-                    ui.label(RichText::new("Danger Zone").strong().color(Color32::from_rgb(220, 38, 38)));
-                    if ui.button(RichText::new("🗑 Wipe All Local Memory Database").color(Color32::from_rgb(220, 38, 38))).clicked() {
+                    ui.label(RichText::new("Erase All Data").strong().color(Color32::from_rgb(220, 38, 38)));
+                    if ui.button(RichText::new("🗑 Erase All Activity Memories").color(Color32::from_rgb(220, 38, 38))).clicked() {
                         self.db.clear_all().ok();
                         self.events.clear();
                         self.today_count = 0;
-                        self.export_message = Some("All local activity memory wiped cleanly.".to_string());
+                        self.export_message = Some("All memory history has been completely erased.".to_string());
                     }
                 }
             }
@@ -684,7 +716,7 @@ impl eframe::App for TraceApp {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("🛡 100% Local-First").small().color(Color32::from_rgb(148, 163, 184)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Zero Keystroke / Cloud Logging").small().color(Color32::from_rgb(148, 163, 184)));
+                    ui.label(RichText::new("Zero Keystrokes • Zero Cloud Uploads").small().color(Color32::from_rgb(148, 163, 184)));
                 });
             });
         });
