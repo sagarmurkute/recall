@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     host: true,
     watch: {
-      ignored: ['**/trace/**']
+      ignored: ['**/trace/**', '**/*.db*', '**/Recall-Personal-Memory-Engine.html']
     }
   }
 });
