@@ -1,206 +1,271 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import type { User, Session } from '@supabase/supabase-js';
+import type { Source } from './types';
+import { authService } from './services/authService';
+import { sourcesService } from './services/sourcesService';
+import { isSupabaseConfigured } from './lib/supabase';
 import { checkSupabaseConnection, type BackendStatusReport } from './lib/status';
-import { Database, ShieldCheck, HardDrive, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Navbar } from './components/Navbar';
+import { AuthForm } from './components/AuthForm';
+import { FileUpload } from './components/FileUpload';
+import { SourceList } from './components/SourceList';
+import { ShieldCheck, HardDrive, RefreshCw, AlertCircle } from 'lucide-react';
 
 export function App() {
-  const [status, setStatus] = useState<BackendStatusReport | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  const runStatusCheck = async () => {
-    setLoading(true);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+
+  // Backend config diagnostics (if env is missing or needs setup)
+  const [backendStatus, setBackendStatus] = useState<BackendStatusReport | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  const loadSources = useCallback(async () => {
+    if (!user) return;
+    setSourcesLoading(true);
+    try {
+      const { data, error } = await sourcesService.getSources();
+      if (!error && data) {
+        setSources(data);
+      }
+    } catch (err) {
+      console.error('[Recall] Error fetching sources:', err);
+    } finally {
+      setSourcesLoading(false);
+    }
+  }, [user]);
+
+  // Initial Auth Check & Session Listener
+  useEffect(() => {
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        const { session } = await authService.getSession();
+        if (mounted) {
+          setSession(session);
+          setUser(session?.user || null);
+          setAuthLoading(false);
+        }
+      } catch (err) {
+        console.error('[Recall] Auth init error:', err);
+        if (mounted) setAuthLoading(false);
+      }
+    };
+
+    initAuth();
+
+    const subscription = authService.onAuthStateChange((newSession, newUser) => {
+      if (mounted) {
+        setSession(newSession);
+        setUser(newUser);
+        setAuthLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Fetch sources when authenticated user changes
+  useEffect(() => {
+    if (user) {
+      loadSources();
+    } else {
+      setSources([]);
+    }
+  }, [user, loadSources]);
+
+  const handleSignOut = async () => {
+    await authService.signOut();
+    setSession(null);
+    setUser(null);
+  };
+
+  const runDiagnosticCheck = async () => {
+    setDiagLoading(true);
     try {
       const report = await checkSupabaseConnection();
-      setStatus(report);
-    } catch (err) {
-      console.error('Failed to check backend status:', err);
+      setBackendStatus(report);
     } finally {
-      setLoading(false);
+      setDiagLoading(false);
     }
   };
 
-  useEffect(() => {
-    runStatusCheck();
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-900 selection:bg-blue-100">
-      {/* Top Navigation */}
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
-              R
-            </div>
-            <div>
-              <span className="font-semibold text-slate-900 tracking-tight text-lg">Recall</span>
-              <span className="ml-2 text-xs font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                Phase 1: Foundation
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
-            <span>BuildX Hackathon</span>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="max-w-4xl mx-auto px-6 py-12 flex-1 w-full">
-        {/* Header Block */}
-        <div className="text-center mb-10">
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900 mb-3">
-            Recall Architecture Foundation
-          </h1>
-          <p className="text-slate-600 text-base max-w-xl mx-auto">
-            "You already have the answer. Recall finds it."
-          </p>
-        </div>
-
-        {/* Backend Diagnostic Card */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mb-8">
-          <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+  // 1. If Supabase is completely unconfigured, show setup guide
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-900">
+        <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-10">
+          <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="p-2 rounded-md bg-blue-50 text-blue-600 border border-blue-100">
-                <Database className="w-5 h-5" />
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-2xs">
+                R
               </div>
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Supabase Connection Diagnostics</h2>
-                <p className="text-xs text-slate-500">Live configuration and reachability verification</p>
-              </div>
+              <span className="font-semibold text-slate-900 tracking-tight text-lg">Recall</span>
             </div>
-            <button
-              onClick={runStatusCheck}
-              disabled={loading}
-              className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors shadow-xs disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-              Recheck Connection
-            </button>
+            <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+              Configuration Needed
+            </span>
+          </div>
+        </header>
+
+        <main className="max-w-3xl mx-auto px-6 py-12 flex-1 w-full">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight mb-2">
+              Supabase Configuration Required
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600">
+              Recall requires your Supabase project URL and Anon public key to initialize authentication and private storage.
+            </p>
           </div>
 
-          <div className="p-6 space-y-6">
-            {/* Status Indicator Banner */}
-            {loading ? (
-              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-600 flex items-center space-x-3">
-                <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
-                <span>Checking Supabase backend reachability...</span>
-              </div>
-            ) : status?.isConnected ? (
-              <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 flex items-start space-x-3">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-medium text-emerald-950">Supabase Backend Connected</div>
-                  <div className="text-emerald-700 text-xs mt-0.5">{status.message}</div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xs space-y-5">
+            <div className="flex items-start space-x-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold text-amber-950">Setup Steps</div>
+                <div className="mt-1 leading-relaxed text-amber-800">
+                  1. Copy <code className="bg-white px-1.5 py-0.5 rounded border border-amber-300">.env.example</code> to <code className="bg-white px-1.5 py-0.5 rounded border border-amber-300">.env.local</code><br />
+                  2. Fill in <code className="font-mono">VITE_SUPABASE_URL</code> and <code className="font-mono">VITE_SUPABASE_ANON_KEY</code>.<br />
+                  3. Run <code className="font-mono">supabase/migrations/20261001000000_recall_initial_schema.sql</code> in your Supabase SQL editor.
                 </div>
               </div>
-            ) : (
-              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900 flex items-start space-x-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-medium text-amber-950">Backend Setup Required</div>
-                  <div className="text-amber-800 text-xs mt-0.5">{status?.message}</div>
-                </div>
+            </div>
+
+            <button
+              onClick={runDiagnosticCheck}
+              disabled={diagLoading}
+              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center space-x-2"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${diagLoading ? 'animate-spin' : ''}`} />
+              <span>Recheck Configuration</span>
+            </button>
+
+            {backendStatus && (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-700">
+                {backendStatus.message}
               </div>
             )}
+          </div>
+        </main>
 
-            {/* Diagnostic Details Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg border border-slate-200 bg-slate-50/50">
-                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
-                  Environment URL
-                </div>
-                <div className="font-mono text-xs text-slate-800 break-all">
-                  {status?.supabaseUrl || 'Not set in .env.local'}
-                </div>
-              </div>
+        <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
+          Recall &copy; 2026 &bull; BuildX Hackathon
+        </footer>
+      </div>
+    );
+  }
 
-              <div className="p-4 rounded-lg border border-slate-200 bg-slate-50/50">
-                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
-                  Configuration Status
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full ${
-                      status?.isConfigured ? 'bg-emerald-500' : 'bg-amber-500'
-                    }`}
-                  />
-                  <span className="text-xs font-medium text-slate-800">
-                    {status?.isConfigured ? 'Environment Configured' : 'Missing .env.local Keys'}
-                  </span>
-                </div>
+  // 2. Loading session state
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm animate-pulse">
+            R
+          </div>
+          <span className="text-xs text-slate-500 font-medium">Initializing Recall...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Unauthenticated State (Show Sign In / Sign Up)
+  if (!session || !user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-900">
+        <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md">
+          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-2xs">
+                R
               </div>
+              <span className="font-semibold text-slate-900 tracking-tight text-lg">Recall</span>
             </div>
+            <div className="text-xs text-slate-500 font-mono">
+              BuildX Hackathon &bull; Phase 2
+            </div>
+          </div>
+        </header>
 
-            {/* Foundation Layer Checklist */}
-            <div className="border-t border-slate-100 pt-6">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-                Phase 1 Foundation Components
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white">
-                  <div className="flex items-center space-x-3">
-                    <Database className="w-4 h-4 text-blue-600" />
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">PostgreSQL Schema & Tables</div>
-                      <div className="text-xs text-slate-500">
-                        profiles, sources, documents, document_chunks, collections, search_history
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono text-slate-500 px-2 py-0.5 bg-slate-100 rounded">
-                    Migration Ready
-                  </span>
-                </div>
+        <main className="max-w-4xl mx-auto px-6 py-12 flex-1 w-full flex flex-col justify-center">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900 mb-2">
+              "You already have the answer. Recall finds it."
+            </h1>
+            <p className="text-sm text-slate-600 max-w-md mx-auto">
+              Securely store and retrieve your college syllabi, lecture slides, whiteboard screenshots, and notes.
+            </p>
+          </div>
 
-                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white">
-                  <div className="flex items-center space-x-3">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">Row Level Security (RLS)</div>
-                      <div className="text-xs text-slate-500">
-                        Strict user ownership policies on all tables (auth.uid() = user_id)
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    Configured in SQL
-                  </span>
-                </div>
+          <AuthForm onAuthSuccess={() => authService.getSession().then(({ session }) => {
+            setSession(session);
+            setUser(session?.user || null);
+          })} />
+        </main>
 
-                <div className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white">
-                  <div className="flex items-center space-x-3">
-                    <HardDrive className="w-4 h-4 text-purple-600" />
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">Supabase Storage Bucket</div>
-                      <div className="text-xs text-slate-500">
-                        Private 'user_files' bucket for PDFs, screenshots, and text files (25MB limit)
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                    Private / Signed Access
-                  </span>
-                </div>
-              </div>
+        <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
+          Recall &copy; 2026 &bull; Protected by PostgreSQL Row Level Security (RLS)
+        </footer>
+      </div>
+    );
+  }
+
+  // 4. Authenticated Application (/app view)
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-900">
+      <Navbar user={user} onSignOut={handleSignOut} />
+
+      <main className="max-w-5xl mx-auto px-6 py-8 flex-1 w-full space-y-8">
+        {/* Welcome & Storage Summary Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Your Digital Memory Vault</h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Upload course files and screenshots to your private, encrypted storage vault.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="font-medium">RLS Active</span>
+            </div>
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
+              <HardDrive className="w-3.5 h-3.5 text-purple-600" />
+              <span className="font-medium">user_files bucket</span>
             </div>
           </div>
         </div>
 
-        {/* Quick Instructions Block */}
-        <div className="bg-slate-100/70 border border-slate-200 rounded-xl p-6 text-xs text-slate-600 space-y-3">
-          <div className="font-semibold text-slate-800 text-sm">How to Connect Your Supabase Project:</div>
-          <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
-            <li>Create a Supabase project at <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">supabase.com</a>.</li>
-            <li>Copy <code className="bg-white px-1.5 py-0.5 rounded border border-slate-300">.env.example</code> to <code className="bg-white px-1.5 py-0.5 rounded border border-slate-300">.env.local</code> and fill in your Project URL and Anon Key.</li>
-            <li>Run the SQL migration located at <code className="bg-white px-1.5 py-0.5 rounded border border-slate-300">supabase/migrations/20261001000000_recall_initial_schema.sql</code> in the Supabase SQL Editor.</li>
-            <li>Click <strong>"Recheck Connection"</strong> above to verify backend connectivity.</li>
-          </ol>
-        </div>
+        {/* Section 1: Upload Dropzone */}
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
+              Upload Materials
+            </h2>
+          </div>
+          <FileUpload userId={user.id} onUploadComplete={loadSources} />
+        </section>
+
+        {/* Section 2: Stored Sources List */}
+        <section className="pt-2">
+          <SourceList
+            sources={sources}
+            loading={sourcesLoading}
+            onRefresh={loadSources}
+          />
+        </section>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
-        Recall &copy; 2026 &bull; BuildX Hackathon &bull; Phase 1: Supabase Foundation
+        Recall &copy; 2026 &bull; BuildX Hackathon &bull; Phase 2: Ingestion & Storage
       </footer>
     </div>
   );

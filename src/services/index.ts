@@ -1,5 +1,6 @@
-export * from './collectionsService';
+export * from './authService';
 export * from './sourcesService';
+export * from './collectionsService';
 export * from './documentsService';
 export * from './searchHistoryService';
 export * from './profileService';
