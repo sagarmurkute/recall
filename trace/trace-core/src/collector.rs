@@ -12,88 +12,184 @@ pub struct WindowInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmartContext {
     pub title: Option<String>,
+    pub category: String,
     pub category_or_domain: Option<String>,
     pub context_item: Option<String>,
+    pub item_type: Option<String>,
 }
 
-/// Extract clean contextual domain/project/file from raw window title
+/// Extract clean contextual domain/project/file and categories from raw window title
 pub fn parse_smart_context(app_name: &str, raw_title: Option<&str>) -> SmartContext {
     let app_lower = app_name.to_lowercase();
     let title = match raw_title {
         Some(t) if !t.trim().is_empty() => t.trim(),
-        _ => return SmartContext { title: None, category_or_domain: None, context_item: None },
+        _ => return SmartContext { 
+            title: None, 
+            category: "General".to_string(), 
+            category_or_domain: None, 
+            context_item: None,
+            item_type: None,
+        },
     };
 
-    // 1. Web Browsers (Chrome, Edge, Brave, Firefox, Arc, Opera)
+    // 1. Web Browsers (Chrome, Edge, Brave, Firefox, Arc, Opera, Vivaldi)
     if app_lower.contains("chrome") || app_lower.contains("msedge") || app_lower.contains("brave") 
-        || app_lower.contains("firefox") || app_lower.contains("arc") || app_lower.contains("opera") {
+        || app_lower.contains("firefox") || app_lower.contains("arc") || app_lower.contains("opera") || app_lower.contains("vivaldi") {
         
-        // Split on standard browser title delimiters: " - ", " — ", " | "
-        let parts: Vec<&str> = title.split(|c| c == '-' || c == '—' || c == '|').map(|s| s.trim()).collect();
-        
-        let mut domain_or_tool = None;
-        let mut context_item = None;
-
         let title_lower = title.to_lowercase();
+        let mut domain = None;
+        let mut subcat = "Web Page";
+
         if title_lower.contains("youtube") {
-            domain_or_tool = Some("youtube.com".to_string());
+            domain = Some("youtube.com".to_string());
+            subcat = "Video / Media";
         } else if title_lower.contains("github") {
-            domain_or_tool = Some("github.com".to_string());
-        } else if title_lower.contains("chatgpt") || title_lower.contains("openai") {
-            domain_or_tool = Some("chatgpt.com".to_string());
-        } else if title_lower.contains("google docs") || title_lower.contains("google sheets") {
-            domain_or_tool = Some("docs.google.com".to_string());
+            domain = Some("github.com".to_string());
+            subcat = "Code Repository";
+        } else if title_lower.contains("chatgpt") || title_lower.contains("openai") || title_lower.contains("claude") || title_lower.contains("gemini") {
+            domain = Some("ai-assistant".to_string());
+            subcat = "AI Assistant";
+        } else if title_lower.contains("docs.google") || title_lower.contains("google docs") {
+            domain = Some("docs.google.com".to_string());
+            subcat = "Document";
+        } else if title_lower.contains("sheets.google") || title_lower.contains("google sheets") {
+            domain = Some("sheets.google.com".to_string());
+            subcat = "Spreadsheet";
         } else if title_lower.contains("notion") {
-            domain_or_tool = Some("notion.so".to_string());
+            domain = Some("notion.so".to_string());
+            subcat = "Workspace Notes";
         } else if title_lower.contains("figma") {
-            domain_or_tool = Some("figma.com".to_string());
-        } else if title_lower.contains("stack overflow") {
-            domain_or_tool = Some("stackoverflow.com".to_string());
+            domain = Some("figma.com".to_string());
+            subcat = "UI/UX Design";
+        } else if title_lower.contains("stackoverflow") || title_lower.contains("stack overflow") {
+            domain = Some("stackoverflow.com".to_string());
+            subcat = "Technical Q&A";
         } else if title_lower.contains("reddit") {
-            domain_or_tool = Some("reddit.com".to_string());
+            domain = Some("reddit.com".to_string());
+            subcat = "Discussion";
+        } else if title_lower.contains("twitter") || title_lower.contains("x.com") {
+            domain = Some("x.com".to_string());
+            subcat = "Social";
+        } else if title_lower.contains("linkedin") {
+            domain = Some("linkedin.com".to_string());
+            subcat = "Professional";
         }
 
-        if !parts.is_empty() {
-            context_item = Some(parts[0].to_string());
-        }
+        // Clean out trailing browser suffixes (e.g. " - Google Chrome")
+        let clean_title = title
+            .trim_end_matches(" - Google Chrome")
+            .trim_end_matches(" - Microsoft​ Edge")
+            .trim_end_matches(" - Brave")
+            .trim_end_matches(" — Mozilla Firefox")
+            .trim();
+
+        let parts: Vec<&str> = clean_title.split(|c| c == '-' || c == '—' || c == '|').map(|s| s.trim()).collect();
+        let main_topic = if !parts.is_empty() { parts[0].to_string() } else { clean_title.to_string() };
 
         return SmartContext {
-            title: Some(title.to_string()),
-            category_or_domain: domain_or_tool,
-            context_item,
+            title: Some(clean_title.to_string()),
+            category: "Browsing".to_string(),
+            category_or_domain: domain,
+            context_item: Some(main_topic),
+            item_type: Some(subcat.to_string()),
         };
     }
 
-    // 2. Code Editors (VS Code, Cursor, Visual Studio, Sublime, JetBrains)
-    if app_lower.contains("code") || app_lower.contains("cursor") || app_lower.contains("devenv") || app_lower.contains("idea") || app_lower.contains("sublime") {
-        // VS Code format: "● filename.ext — workspace_name — Visual Studio Code"
+    // 2. Code Editors (VS Code, Cursor, Visual Studio, Sublime, JetBrains, RustRover, CLion, PyCharm)
+    if app_lower.contains("code") || app_lower.contains("cursor") || app_lower.contains("devenv") 
+        || app_lower.contains("idea") || app_lower.contains("sublime") || app_lower.contains("rustrover") || app_lower.contains("pycharm") {
+        
         let clean = title.trim_start_matches("● ").trim();
         let parts: Vec<&str> = clean.split(|c| c == '—' || c == '-').map(|s| s.trim()).collect();
         
-        let file_or_proj = if !parts.is_empty() { Some(parts[0].to_string()) } else { None };
+        let file_or_tab = if !parts.is_empty() { parts[0].to_string() } else { clean.to_string() };
         let workspace = if parts.len() > 1 { Some(parts[1].to_string()) } else { None };
 
+        // Determine file language / type
+        let lang = if file_or_tab.ends_with(".rs") {
+            Some("Rust")
+        } else if file_or_tab.ends_with(".ts") || file_or_tab.ends_with(".tsx") {
+            Some("TypeScript / React")
+        } else if file_or_tab.ends_with(".js") || file_or_tab.ends_with(".jsx") {
+            Some("JavaScript")
+        } else if file_or_tab.ends_with(".py") {
+            Some("Python")
+        } else if file_or_tab.ends_with(".go") {
+            Some("Go")
+        } else if file_or_tab.ends_with(".cpp") || file_or_tab.ends_with(".c") || file_or_tab.ends_with(".h") {
+            Some("C/C++")
+        } else if file_or_tab.ends_with(".html") || file_or_tab.ends_with(".css") {
+            Some("HTML / CSS")
+        } else if file_or_tab.ends_with(".json") || file_or_tab.ends_with(".toml") || file_or_tab.ends_with(".yaml") || file_or_tab.ends_with(".yml") {
+            Some("Config")
+        } else if file_or_tab.ends_with(".md") {
+            Some("Markdown / Docs")
+        } else if file_or_tab.ends_with(".sql") {
+            Some("SQL Database")
+        } else {
+            Some("Source Code")
+        };
+
         return SmartContext {
-            title: Some(title.to_string()),
+            title: Some(clean.to_string()),
+            category: "Development".to_string(),
             category_or_domain: workspace,
-            context_item: file_or_proj,
+            context_item: Some(file_or_tab),
+            item_type: lang.map(|s| s.to_string()),
         };
     }
 
-    // 3. File Explorer
+    // 3. Command Line & Terminals (Windows Terminal, PowerShell, CMD, Git Bash)
+    if app_lower.contains("windowsterminal") || app_lower.contains("powershell") || app_lower.contains("cmd.exe") || app_lower.contains("bash") || app_lower.contains("mintty") {
+        return SmartContext {
+            title: Some(title.to_string()),
+            category: "Terminal".to_string(),
+            category_or_domain: Some("CLI / Shell".to_string()),
+            context_item: Some(title.to_string()),
+            item_type: Some("Terminal Session".to_string()),
+        };
+    }
+
+    // 4. File Explorer
     if app_lower.contains("explorer") {
         return SmartContext {
             title: Some(title.to_string()),
-            category_or_domain: Some("File System".to_string()),
+            category: "Files".to_string(),
+            category_or_domain: Some("File Explorer".to_string()),
             context_item: Some(title.to_string()),
+            item_type: Some("Directory".to_string()),
+        };
+    }
+
+    // 5. Office & Documents (Word, Excel, PowerPoint, Acrobat, PDF)
+    if app_lower.contains("winword") || app_lower.contains("excel") || app_lower.contains("powerpnt") || app_lower.contains("acrobat") || app_lower.contains("foxit") {
+        return SmartContext {
+            title: Some(title.to_string()),
+            category: "Documents".to_string(),
+            category_or_domain: Some("Office Document".to_string()),
+            context_item: Some(title.to_string()),
+            item_type: Some("Document".to_string()),
+        };
+    }
+
+    // 6. Communication (Slack, Discord, Teams, Telegram, WhatsApp)
+    if app_lower.contains("slack") || app_lower.contains("discord") || app_lower.contains("teams") || app_lower.contains("telegram") || app_lower.contains("whatsapp") {
+        return SmartContext {
+            title: Some(title.to_string()),
+            category: "Communication".to_string(),
+            category_or_domain: Some(app_name.to_string()),
+            context_item: Some(title.to_string()),
+            item_type: Some("Chat / Channel".to_string()),
         };
     }
 
     // Default
     SmartContext {
         title: Some(title.to_string()),
+        category: "Productivity".to_string(),
         category_or_domain: None,
-        context_item: None,
+        context_item: Some(title.to_string()),
+        item_type: None,
     }
 }
 

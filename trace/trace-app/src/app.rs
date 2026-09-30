@@ -67,7 +67,21 @@ impl TraceApp {
         let privacy = Arc::new(Mutex::new(privacy_controller));
         let is_recording = Arc::new(AtomicBool::new(true));
 
-        let initial_events = db.get_recent_events(30).unwrap_or_default();
+        // Log clean session startup event
+        let mut startup_event = ActivityEvent::new_app_focus(
+            "Trace".to_string(),
+            Some("Trace Session Started".to_string()),
+            None,
+        );
+        startup_event.event_type = "session_lifecycle".to_string();
+        startup_event.metadata = serde_json::json!({
+            "category": "System",
+            "item_type": "Session Lifecycle",
+            "lifecycle": "start"
+        });
+        db.insert_event(&startup_event).ok();
+
+        let initial_events = db.get_recent_events(40).unwrap_or_default();
         let initial_today = db.get_today_count().unwrap_or(0);
         let available_apps = db.get_distinct_applications().unwrap_or_default();
         let app_stats = db.get_app_breakdown_today().unwrap_or_default();
@@ -125,13 +139,18 @@ impl TraceApp {
                         new_event.duration_seconds = 1;
                         active_seconds = 1;
 
-                        if let Some(domain) = smart.category_or_domain {
-                            new_event.url = Some(format!("https://{}", domain));
+                        if let Some(ref domain) = smart.category_or_domain {
+                            if domain.contains('.') {
+                                new_event.url = Some(format!("https://{}", domain));
+                            }
                         }
 
-                        if let Some(item) = smart.context_item {
-                            new_event.metadata = serde_json::json!({ "context_item": item });
-                        }
+                        new_event.metadata = serde_json::json!({
+                            "category": smart.category,
+                            "context_item": smart.context_item,
+                            "item_type": smart.item_type,
+                            "domain_or_workspace": smart.category_or_domain,
+                        });
 
                         if let Ok(()) = db_clone.insert_event(&new_event) {
                             current_event_id = Some(new_event.id);
@@ -179,9 +198,9 @@ impl TraceApp {
             };
 
             if self.search_query.trim().is_empty() && filter.is_none() {
-                self.events = self.db.get_recent_events(40).unwrap_or_default();
+                self.events = self.db.get_recent_events(50).unwrap_or_default();
             } else {
-                self.events = self.db.search_events(&self.search_query, filter, 50).unwrap_or_default();
+                self.events = self.db.search_events(&self.search_query, filter, 60).unwrap_or_default();
             }
 
             self.today_count = self.db.get_today_count().unwrap_or(0);
@@ -201,6 +220,24 @@ impl TraceApp {
         } else {
             format!("{}h {}m", seconds / 3600, (seconds % 3600) / 60)
         }
+    }
+}
+
+impl Drop for TraceApp {
+    fn drop(&mut self) {
+        // Record session closed lifecycle event on exit
+        let mut close_event = ActivityEvent::new_app_focus(
+            "Trace".to_string(),
+            Some("Trace Session Closed".to_string()),
+            None,
+        );
+        close_event.event_type = "session_lifecycle".to_string();
+        close_event.metadata = serde_json::json!({
+            "category": "System",
+            "item_type": "Session Lifecycle",
+            "lifecycle": "stop"
+        });
+        self.db.insert_event(&close_event).ok();
     }
 }
 
@@ -241,10 +278,10 @@ impl eframe::App for TraceApp {
                     .inner_margin(6.0)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("FOCUS:").small().strong().color(Color32::from_rgb(100, 116, 139)));
+                            ui.label(RichText::new("CURRENT FOCUS:").small().strong().color(Color32::from_rgb(100, 116, 139)));
                             ui.label(RichText::new(&curr.application).strong().small().color(Color32::from_rgb(37, 99, 235)));
                             if let Some(title) = &curr.window_title {
-                                let clean = if title.len() > 40 { format!("{}...", &title[..37]) } else { title.clone() };
+                                let clean = if title.len() > 45 { format!("{}...", &title[..42]) } else { title.clone() };
                                 ui.label(RichText::new(format!("— {}", clean)).small().color(Color32::from_rgb(51, 65, 85)));
                             }
                         });
@@ -295,7 +332,7 @@ impl eframe::App for TraceApp {
 
                         egui::ComboBox::from_id_salt("app_filter")
                             .selected_text(&self.selected_app_filter)
-                            .width(110.0)
+                            .width(120.0)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.selected_app_filter, "All Apps".to_string(), "All Apps");
                                 for app in &self.available_apps {
@@ -329,7 +366,7 @@ impl eframe::App for TraceApp {
                     // Event Feed
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .max_height(430.0)
+                        .max_height(440.0)
                         .show(ui, |ui| {
                             if self.events.is_empty() {
                                 ui.add_space(50.0);
@@ -341,6 +378,38 @@ impl eframe::App for TraceApp {
                                 let mut to_delete = None;
 
                                 for event in &self.events {
+                                    let is_lifecycle = event.event_type == "session_lifecycle";
+
+                                    if is_lifecycle {
+                                        // Session start/stop pill
+                                        egui::Frame::none()
+                                            .fill(Color32::from_rgb(248, 250, 252))
+                                            .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(226, 232, 240)))
+                                            .rounding(6.0)
+                                            .inner_margin(6.0)
+                                            .show(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    let is_start = event.window_title.as_deref().unwrap_or("").contains("Started");
+                                                    let icon = if is_start { "🟢" } else { "🔴" };
+                                                    ui.label(RichText::new(format!("{} {}", icon, event.window_title.as_deref().unwrap_or("Session Event"))).small().strong().color(Color32::from_rgb(71, 85, 105)));
+
+                                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                        let time_str = DateTime::parse_from_rfc3339(&event.timestamp)
+                                                            .map(|dt| dt.format("%I:%M %p").to_string())
+                                                            .unwrap_or_else(|_| event.timestamp.clone());
+                                                        ui.label(RichText::new(time_str).small().color(Color32::from_rgb(148, 163, 184)));
+                                                    });
+                                                });
+                                            });
+                                        ui.add_space(4.0);
+                                        continue;
+                                    }
+
+                                    // Standard activity card
+                                    let item_type = event.metadata.get("item_type").and_then(|v| v.as_str());
+                                    let context_item = event.metadata.get("context_item").and_then(|v| v.as_str());
+                                    let domain_or_ws = event.metadata.get("domain_or_workspace").and_then(|v| v.as_str());
+
                                     egui::Frame::none()
                                         .fill(Color32::WHITE)
                                         .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(241, 245, 249)))
@@ -350,6 +419,10 @@ impl eframe::App for TraceApp {
                                             ui.horizontal(|ui| {
                                                 ui.label(RichText::new(&event.application).strong().size(12.0).color(Color32::from_rgb(37, 99, 235)));
                                                 
+                                                if let Some(t) = item_type {
+                                                    ui.label(RichText::new(format!("[{}]", t)).small().color(Color32::from_rgb(124, 58, 237)));
+                                                }
+
                                                 if event.duration_seconds > 0 {
                                                     ui.label(RichText::new(format!("• {}", Self::format_duration(event.duration_seconds))).small().color(Color32::from_rgb(100, 116, 139)));
                                                 }
@@ -366,14 +439,23 @@ impl eframe::App for TraceApp {
                                                 });
                                             });
 
-                                            if let Some(title) = &event.window_title {
+                                            // Main Context/File/Topic
+                                            if let Some(item) = context_item {
+                                                ui.add_space(2.0);
+                                                ui.label(RichText::new(item).strong().size(11.0).color(Color32::from_rgb(30, 41, 59)));
+                                            } else if let Some(title) = &event.window_title {
                                                 ui.add_space(2.0);
                                                 ui.label(RichText::new(title).size(11.0).color(Color32::from_rgb(71, 85, 105)));
                                             }
 
+                                            // Subtitle / URL / Workspace
                                             if let Some(url) = &event.url {
                                                 ui.horizontal(|ui| {
                                                     ui.label(RichText::new(format!("🌐 {}", url)).small().color(Color32::from_rgb(16, 185, 129)));
+                                                });
+                                            } else if let Some(ws) = domain_or_ws {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(RichText::new(format!("📦 {}", ws)).small().color(Color32::from_rgb(100, 116, 139)));
                                                 });
                                             }
                                         });

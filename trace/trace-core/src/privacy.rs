@@ -10,6 +10,8 @@ impl Default for PrivacyController {
         Self {
             is_paused: false,
             excluded_apps: vec![
+                "trace.exe".to_string(),
+                "trace-app.exe".to_string(),
                 "1password.exe".to_string(),
                 "bitwarden.exe".to_string(),
                 "keepass.exe".to_string(),
