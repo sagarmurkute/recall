@@ -1,0 +1,6 @@
+target/
+build_target/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

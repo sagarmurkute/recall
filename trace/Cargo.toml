@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = [
+    "trace-core",
+    "trace-app",
+]
