@@ -184,6 +184,52 @@ export interface Database {
         };
         Relationships: [];
       };
+      activity_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          event_type: 'app_focus' | 'browser_visit' | 'file_open' | 'custom';
+          application: string;
+          window_title: string | null;
+          url: string | null;
+          file_path: string | null;
+          timestamp: string;
+          duration_seconds: number;
+          metadata: Json;
+          privacy_state: string;
+          fts_tokens?: unknown;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          event_type: 'app_focus' | 'browser_visit' | 'file_open' | 'custom';
+          application: string;
+          window_title?: string | null;
+          url?: string | null;
+          file_path?: string | null;
+          timestamp?: string;
+          duration_seconds?: number;
+          metadata?: Json;
+          privacy_state?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          event_type?: 'app_focus' | 'browser_visit' | 'file_open' | 'custom';
+          application?: string;
+          window_title?: string | null;
+          url?: string | null;
+          file_path?: string | null;
+          timestamp?: string;
+          duration_seconds?: number;
+          metadata?: Json;
+          privacy_state?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       search_history: {
         Row: {
           id: string;

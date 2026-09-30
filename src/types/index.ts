@@ -22,6 +22,10 @@ export type DocumentChunk = Database['public']['Tables']['document_chunks']['Row
 export type DocumentChunkInsert = Database['public']['Tables']['document_chunks']['Insert'];
 export type DocumentChunkUpdate = Database['public']['Tables']['document_chunks']['Update'];
 
+export type ActivityEvent = Database['public']['Tables']['activity_events']['Row'];
+export type ActivityEventInsert = Database['public']['Tables']['activity_events']['Insert'];
+export type ActivityEventUpdate = Database['public']['Tables']['activity_events']['Update'];
+
 export type SearchHistory = Database['public']['Tables']['search_history']['Row'];
 export type SearchHistoryInsert = Database['public']['Tables']['search_history']['Insert'];
 export type SearchHistoryUpdate = Database['public']['Tables']['search_history']['Update'];
