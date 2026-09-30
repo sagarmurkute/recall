@@ -67,4 +67,28 @@ impl PrivacyController {
     pub fn is_paused(&self) -> bool {
         self.is_paused
     }
+
+    pub fn add_excluded_app(&mut self, app: &str) {
+        let app_clean = app.trim().to_lowercase();
+        if !app_clean.is_empty() && !self.excluded_apps.iter().any(|a| a.to_lowercase() == app_clean) {
+            self.excluded_apps.push(app_clean);
+        }
+    }
+
+    pub fn remove_excluded_app(&mut self, app: &str) {
+        let app_clean = app.trim().to_lowercase();
+        self.excluded_apps.retain(|a| a.to_lowercase() != app_clean);
+    }
+
+    pub fn add_excluded_keyword(&mut self, kw: &str) {
+        let kw_clean = kw.trim().to_lowercase();
+        if !kw_clean.is_empty() && !self.excluded_keywords.iter().any(|k| k.to_lowercase() == kw_clean) {
+            self.excluded_keywords.push(kw_clean);
+        }
+    }
+
+    pub fn remove_excluded_keyword(&mut self, kw: &str) {
+        let kw_clean = kw.trim().to_lowercase();
+        self.excluded_keywords.retain(|k| k.to_lowercase() != kw_clean);
+    }
 }

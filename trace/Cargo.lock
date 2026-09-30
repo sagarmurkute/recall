@@ -3146,6 +3146,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "eframe",
+ "serde_json",
  "trace-core",
 ]
 

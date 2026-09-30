@@ -12,3 +12,4 @@ path = "src/main.rs"
 trace-core = { path = "../trace-core" }
 eframe = "0.29"
 chrono = "0.4"
+serde_json = "1.0"
