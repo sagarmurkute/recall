@@ -210,7 +210,27 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      search_document_chunks: {
+        Args: {
+          search_query: string;
+          match_limit?: number;
+        };
+        Returns: {
+          chunk_id: string;
+          document_id: string;
+          source_id: string;
+          source_title: string;
+          source_type: string;
+          storage_path: string | null;
+          page_number: number | null;
+          chunk_index: number;
+          raw_text: string;
+          headline: string;
+          rank: number;
+        }[];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

@@ -7,3 +7,4 @@ export * from './profileService';
 export * from './chunkingService';
 export * from './extractionService';
 export * from './processingPipeline';
+export * from './searchService';

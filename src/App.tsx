@@ -3,20 +3,32 @@ import type { User, Session } from '@supabase/supabase-js';
 import type { Source } from './types';
 import { authService } from './services/authService';
 import { sourcesService } from './services/sourcesService';
+import { searchService, type SearchResponse } from './services/searchService';
 import { isSupabaseConfigured } from './lib/supabase';
 import { checkSupabaseConnection, type BackendStatusReport } from './lib/status';
 import { Navbar } from './components/Navbar';
 import { AuthForm } from './components/AuthForm';
+import { SearchInput } from './components/SearchInput';
+import { SearchResultsView } from './components/SearchResultsView';
 import { FileUpload } from './components/FileUpload';
 import { SourceList } from './components/SourceList';
 import { ChunkViewerModal } from './components/ChunkViewerModal';
-import { ShieldCheck, HardDrive, RefreshCw, AlertCircle, Layers } from 'lucide-react';
+import { ShieldCheck, HardDrive, RefreshCw, AlertCircle, Search, FolderArchive } from 'lucide-react';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Tab State: 'search' | 'sources'
+  const [activeTab, setActiveTab] = useState<'search' | 'sources'>('search');
+
+  // Search State
+  const [searchResponse, setSearchResponse] = useState<SearchResponse | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // Sources & Inspector State
   const [sources, setSources] = useState<Source[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [selectedSourceForChunks, setSelectedSourceForChunks] = useState<Source | null>(null);
@@ -32,7 +44,6 @@ export function App() {
       const { data, error } = await sourcesService.getSources();
       if (!error && data) {
         setSources(data);
-        // If chunk inspector modal is open, refresh selected source
         if (selectedSourceForChunks) {
           const updatedSelected = data.find((s) => s.id === selectedSourceForChunks.id);
           if (updatedSelected) {
@@ -46,6 +57,27 @@ export function App() {
       setSourcesLoading(false);
     }
   }, [user, selectedSourceForChunks]);
+
+  const handleSearch = async (query: string) => {
+    setSearchLoading(true);
+    setHasSearched(true);
+    setActiveTab('search');
+    try {
+      const response = await searchService.search(query);
+      setSearchResponse(response);
+    } catch (err) {
+      console.error('[Recall] Search error:', err);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleOpenSourceById = (sourceId: string) => {
+    const src = sources.find((s) => s.id === sourceId);
+    if (src) {
+      setSelectedSourceForChunks(src);
+    }
+  };
 
   // Initial Auth Check & Session Listener
   useEffect(() => {
@@ -95,6 +127,8 @@ export function App() {
     setSession(null);
     setUser(null);
     setSelectedSourceForChunks(null);
+    setSearchResponse(null);
+    setHasSearched(false);
   };
 
   const runDiagnosticCheck = async () => {
@@ -143,7 +177,7 @@ export function App() {
                 <div className="mt-1 leading-relaxed text-amber-800">
                   1. Copy <code className="bg-white px-1.5 py-0.5 rounded border border-amber-300">.env.example</code> to <code className="bg-white px-1.5 py-0.5 rounded border border-amber-300">.env.local</code><br />
                   2. Fill in <code className="font-mono">VITE_SUPABASE_URL</code> and <code className="font-mono">VITE_SUPABASE_ANON_KEY</code>.<br />
-                  3. Run <code className="font-mono">supabase/migrations/20261001000000_recall_initial_schema.sql</code> in your Supabase SQL editor.
+                  3. Run <code className="font-mono">supabase/migrations/20261001000000_recall_initial_schema.sql</code> and <code className="font-mono">supabase/migrations/20261002000000_search_chunks_fts.sql</code> in your Supabase SQL editor.
                 </div>
               </div>
             </div>
@@ -199,7 +233,7 @@ export function App() {
               <span className="font-semibold text-slate-900 tracking-tight text-lg">Recall</span>
             </div>
             <div className="text-xs text-slate-500 font-mono">
-              BuildX Hackathon &bull; Phase 3: Extraction & Indexing
+              BuildX Hackathon &bull; Phase 4: Search & Retrieval
             </div>
           </div>
         </header>
@@ -210,7 +244,7 @@ export function App() {
               "You already have the answer. Recall finds it."
             </h1>
             <p className="text-sm text-slate-600 max-w-md mx-auto">
-              Securely ingest and extract searchable chunks from your college syllabi, lecture slides, whiteboard screenshots, and notes.
+              Ask natural questions about your course syllabi, lecture slides, whiteboard screenshots, and notes.
             </p>
           </div>
 
@@ -232,52 +266,105 @@ export function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-900">
       <Navbar user={user} onSignOut={handleSignOut} />
 
-      <main className="max-w-5xl mx-auto px-6 py-8 flex-1 w-full space-y-8">
-        {/* Welcome & Storage Summary Header */}
+      <main className="max-w-5xl mx-auto px-6 py-8 flex-1 w-full space-y-7">
+        {/* Header & Status Pills */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Your Digital Memory Vault</h1>
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Personal Retrieval Engine</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Upload course files and screenshots. Recall automatically extracts readable text and generates searchable chunks.
+              Query stored document chunks and retrieve verified passages from your uploaded sources.
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2">
             <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-medium">RLS Active</span>
-            </div>
-            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
-              <Layers className="w-3.5 h-3.5 text-blue-600" />
-              <span className="font-medium">Auto-Chunking</span>
+              <span className="font-medium">RLS Enforced</span>
             </div>
             <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
               <HardDrive className="w-3.5 h-3.5 text-purple-600" />
-              <span className="font-medium">user_files</span>
+              <span className="font-medium">{sources.length} Sources</span>
             </div>
           </div>
         </div>
 
-        {/* Section 1: Upload Dropzone */}
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
-              Upload & Extract Materials
-            </h2>
-          </div>
-          <FileUpload userId={user.id} onUploadComplete={loadSources} />
-        </section>
+        {/* View Switcher Tabs */}
+        <div className="flex border-b border-slate-200 space-x-6">
+          <button
+            onClick={() => setActiveTab('search')}
+            className={`flex items-center space-x-2 pb-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
+              activeTab === 'search'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Search className="w-4 h-4" />
+            <span>Search & Retrieve</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('sources')}
+            className={`flex items-center space-x-2 pb-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
+              activeTab === 'sources'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <FolderArchive className="w-4 h-4" />
+            <span>Manage Vault & Uploads ({sources.length})</span>
+          </button>
+        </div>
 
-        {/* Section 2: Stored Sources List with Chunk Inspector */}
-        <section className="pt-2">
-          <SourceList
-            sources={sources}
-            loading={sourcesLoading}
-            userId={user.id}
-            onRefresh={loadSources}
-            onSelectSourceForChunks={(src) => setSelectedSourceForChunks(src)}
-          />
-        </section>
+        {/* TAB 1: Search & Retrieval View */}
+        {activeTab === 'search' && (
+          <div className="space-y-6">
+            {/* Search Bar Container */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Natural Language Query
+                </span>
+                <span className="text-[11px] font-mono text-slate-400">
+                  Full-Text Search Engine Active
+                </span>
+              </div>
+              <SearchInput
+                onSearch={handleSearch}
+                loading={searchLoading}
+                initialQuery={searchResponse?.query || ''}
+              />
+            </div>
+
+            {/* Search Results */}
+            <SearchResultsView
+              response={searchResponse}
+              loading={searchLoading}
+              searched={hasSearched}
+              onOpenChunkInspector={handleOpenSourceById}
+            />
+          </div>
+        )}
+
+        {/* TAB 2: Manage Vault & Uploads View */}
+        {activeTab === 'sources' && (
+          <div className="space-y-8">
+            <section className="space-y-2">
+              <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
+                Upload New Files
+              </h2>
+              <FileUpload userId={user.id} onUploadComplete={loadSources} />
+            </section>
+
+            <section className="pt-2">
+              <SourceList
+                sources={sources}
+                loading={sourcesLoading}
+                userId={user.id}
+                onRefresh={loadSources}
+                onSelectSourceForChunks={(src) => setSelectedSourceForChunks(src)}
+              />
+            </section>
+          </div>
+        )}
       </main>
 
       {/* Chunk Viewer Modal */}
@@ -291,7 +378,7 @@ export function App() {
       )}
 
       <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
-        Recall &copy; 2026 &bull; BuildX Hackathon &bull; Phase 3: Content Extraction & Chunking
+        Recall &copy; 2026 &bull; BuildX Hackathon &bull; Phase 4: Search & Retrieval
       </footer>
     </div>
   );
