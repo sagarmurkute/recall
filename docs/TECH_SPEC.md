@@ -2,25 +2,25 @@
 
 ---
 
-## 1. System Overview & Architecture Diagram
+## 1. Architectural Overview & System Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      CLIENT LAYER (React + Vite + TS)                       │
 │  - React 19 + TypeScript + Tailwind CSS                                     │
-│  - Supabase Client SDK (Auth, Realtime, Storage, DB with RLS)               │
-│  - Unified Omnibar (⌘K), Grounded Answer Viewer, Split-Screen Inspector     │
+│  - Supabase Client SDK (Auth, Storage, DB with RLS)                         │
+│  - Omnibar Search (⌘K), Grounded Answer Viewer, Split-Screen Inspector      │
 └──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ HTTPS / Signed Auth Token
+                                       │ HTTPS / JWT Auth Bearer
                                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                SUPABASE BACKEND & SECURE EDGE FUNCTIONS                      │
 │                                                                             │
 │  ┌───────────────────────────────┐     ┌──────────────────────────────────┐ │
-│  │   Edge Function: /ingest      │     │    Edge Function: /search-query  │ │
-│  │   - Secure Gemini Vision OCR  │     │    - Embed query (text-emb-004)  │ │
-│  │   - Text extraction & chunks  │     │    - Hybrid search RPC in PG     │ │
-│  │   - Generate embeddings       │     │    - Grounded Gemini Synthesis   │ │
+│  │   Edge Function: /ingest-file │     │   Edge Function: /query-memory   │ │
+│  │   - Gemini Vision OCR         │     │   - Generate query vector        │ │
+│  │   - Semantic chunking         │     │   - Hybrid search RPC in PG      │ │
+│  │   - text-embedding generation │     │   - Grounded Gemini synthesis    │ │
 │  └───────────────┬───────────────┘     └─────────────────┬────────────────┘ │
 │                  │                                       │                  │
 │                  └───────────────────┬───────────────────┘                  │
@@ -29,279 +29,102 @@
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                   POSTGRESQL DATABASE & STORAGE                       │  │
 │  │  - pgvector extension (768-dim embeddings)                            │  │
-│  │  - PostgreSQL Full-Text Search (tsvector / tsquery)                   │  │
-│  │  - Strict Row Level Security (RLS) on all tables                      │  │
-│  │  - Supabase Storage Buckets (Private/Signed URLs for PDFs & Images)   │  │
+│  │  - PostgreSQL Full-Text Search (tsvector / GIN index)                 │  │
+│  │  - Strict Row Level Security (RLS) on all user data                   │  │
+│  │  - Supabase Storage (Private user_files bucket + signed URLs)         │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ HTTPS API Key (Server-side ONLY)
+                                       │ Server-side API Secret (Protected)
                                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                             GOOGLE GEMINI API                               │
-│  - Gemini 2.5 / 1.5 Flash (Vision OCR, Entity Extraction, Grounded Synthesis)│
-│  - text-embedding-004 (768-dimensional semantic embeddings)                 │
+│  - Configurable Model: GEMINI_MODEL (e.g., gemini-2.5-flash / 1.5-flash)    │
+│  - Configurable Embeddings: GEMINI_EMBEDDING_MODEL (text-embedding-004)    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Technology Stack & Component Specifications
+## 2. Separation of Concerns: Retrieval vs. AI Reasoning
 
-### 2.1 Frontend
-* **Core Framework:** React 19 with Vite and TypeScript for sub-second hot reload and fast builds.
-* **Styling & Design System:** Tailwind CSS with custom light-mode design tokens, Lucide React icons, and Radix UI headless primitives.
-* **Client Data Layer:** `@supabase/supabase-js` communicating directly with Supabase Auth, Storage, and PostgreSQL through Row Level Security (RLS).
-* **Security Principle:** The frontend **never** possesses the Gemini API key or Supabase `service_role` secret key. All AI operations and multi-step pipeline tasks are routed through authenticated Supabase Edge Functions.
+Recall strictly decouples the **Retrieval Layer** from the **Generative Reasoning Layer**:
 
-### 2.2 Backend & Edge Infrastructure
-* **Platform:** Supabase (BaaS) providing managed PostgreSQL, Auth, Storage, and Deno-based Edge Functions.
-* **Auth:** Supabase Auth (Email/Password + Magic Link or Google OAuth).
-* **Storage:** Supabase Storage private buckets for uploaded raw PDFs, images, screenshots, and document assets.
-* **Edge Functions:**
-  - `ingest-file`: Handles multi-modal document extraction, calls Gemini Vision OCR, chunks text, generates embeddings, and inserts into PostgreSQL.
-  - `query-memory`: Takes user queries, generates query embeddings, invokes the PostgreSQL hybrid search function (`match_memories`), and runs Gemini grounded synthesis.
+1. **Deterministic Retrieval Layer (PostgreSQL + pgvector):**
+   - User queries are converted to dense vector embeddings.
+   - Vector cosine distance (`<=>`) finds semantically adjacent content.
+   - Lexical search (`tsvector @@ websearch_to_tsquery`) matches exact keyword tokens (e.g. course codes, specific room numbers).
+   - Reciprocal rank fusion produces the Top-5 most relevant source chunks.
 
-### 2.3 Database & Search Engine (PostgreSQL)
-* **Vector Engine:** `pgvector` extension for storing and indexing 768-dimensional embeddings generated by `text-embedding-004` (using HNSW or IVFFlat cosine distance indexing).
-* **Lexical Search:** Native PostgreSQL Full-Text Search (`tsvector`, `tsquery`, `websearch_to_tsquery` with `english` dictionary).
-* **Hybrid Retrieval:** Composite scoring combining vector cosine distance and full-text ranking (RRF / Weighted Sum) executed via an optimized PostgreSQL RPC function.
+2. **Reasoning & Grounding Layer (Google Gemini):**
+   - Receives *only* the retrieved candidate chunks.
+   - Extracts verbatim quotes and creates a concise synthesis.
+   - Emits citation tokens `[SRC-#]` mapped to the actual chunk IDs.
+   - Enforces a strict refusal protocol if no matching information is found in the provided sources.
 
 ---
 
-## 3. Database Schema Design & Entities
+## 3. Technology Stack & Component Specifications
 
-```sql
--- Enable necessary extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "vector";
+### 3.1 Frontend Stack (Hackathon MVP)
+* **Framework:** React 19 with Vite (Fast HMR, minimal overhead).
+* **Language:** TypeScript for type safety across API contracts and schemas.
+* **Styling:** Tailwind CSS with custom light-mode tokens (warm slate, clean indigo accents).
+* **Icons & Headless UI:** Lucide React, Radix UI Dialog / Dropdown / Tooltip primitives.
+* **Data Access:** `@supabase/supabase-js` (Auth, Storage signed URLs, and direct table queries via RLS).
 
--- 1. PROFILES / USERS
-CREATE TABLE profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    email TEXT NOT NULL,
-    full_name TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+### 3.2 Backend & Storage (Supabase)
+* **Auth:** Supabase Auth for user identity and tenant isolation (`auth.uid()`).
+* **Storage:** Private bucket `user_files` supporting PDF, PNG, JPG, and TXT files (25MB limit).
+* **Database:** Managed PostgreSQL with `pgvector` and `uuid-ossp` extensions.
+* **Edge Functions:** Deno-based Supabase Edge Functions (`ingest-file`, `query-memory`) keeping AI secrets completely off the client.
 
--- 2. COLLECTIONS (Courses, Projects, Subjects)
-CREATE TABLE collections (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    name TEXT NOT NULL, -- e.g., "CS210 - Algorithms"
-    color TEXT DEFAULT '#2563EB',
-    icon TEXT DEFAULT 'folder',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. SOURCES (Logical container for where info originated)
-CREATE TABLE sources (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    collection_id UUID REFERENCES collections(id) ON DELETE SET NULL,
-    source_type TEXT NOT NULL, -- 'file_upload', 'manual_note', 'gmail', 'gdrive', 'whatsapp', 'url'
-    title TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}'::jsonb, -- e.g. sender, external_id, source_url
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. FILES (Binary storage metadata linking to Supabase Storage)
-CREATE TABLE files (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    source_id UUID NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    storage_bucket TEXT NOT NULL DEFAULT 'user_files',
-    storage_path TEXT NOT NULL, -- e.g. "{user_id}/{file_id}.pdf"
-    file_name TEXT NOT NULL,
-    mime_type TEXT NOT NULL,
-    file_size_bytes BIGINT NOT NULL,
-    page_count INTEGER DEFAULT 1,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. MEMORIES (High-level ingested cognitive unit)
-CREATE TABLE memories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    source_id UUID NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    summary TEXT,
-    is_pinned BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 6. EXTRACTED_CONTENT (Chunk-level parsed text & entities)
-CREATE TABLE extracted_content (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    memory_id UUID NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    chunk_index INTEGER NOT NULL,
-    page_number INTEGER, -- NULL for single images/notes
-    raw_text TEXT NOT NULL,
-    token_count INTEGER NOT NULL,
-    extracted_entities JSONB DEFAULT '{}'::jsonb, -- Deadlines, dates, formulas, names
-    fts_tokens TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', raw_text)) STORED,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX extracted_content_fts_idx ON extracted_content USING GIN (fts_tokens);
-
--- 7. EMBEDDINGS (pgvector 768-dim storage)
-CREATE TABLE embeddings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    extracted_content_id UUID NOT NULL REFERENCES extracted_content(id) ON DELETE CASCADE,
-    embedding VECTOR(768) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX embeddings_vector_idx ON embeddings USING hnsw (embedding vector_cosine_ops);
-
--- 8. SEARCH_HISTORY (Audit & recent queries)
-CREATE TABLE search_history (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    query_text TEXT NOT NULL,
-    result_count INTEGER DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+### 3.3 Google Gemini AI Configuration
+* **Configurable Model Architecture:** To avoid hard-coded outdated models, all model calls reference environment variables:
+  - `GEMINI_MODEL`: Generative synthesis & vision OCR (e.g., `gemini-2.5-flash`, `gemini-1.5-flash`).
+  - `GEMINI_EMBEDDING_MODEL`: Semantic embeddings (e.g., `text-embedding-004`).
+* *Note: Prior to execution, active model identifiers must be confirmed against Google Gemini API availability.*
 
 ---
 
-## 4. Row Level Security (RLS) Policy Blueprint
+## 4. Environment Variables Configuration
 
-Every table has RLS strictly enabled. Users can only read, write, update, and delete their own records.
-
-```sql
--- Enable RLS on all tables
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE collections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sources ENABLE ROW LEVEL SECURITY;
-ALTER TABLE files ENABLE ROW LEVEL SECURITY;
-ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE extracted_content ENABLE ROW LEVEL SECURITY;
-ALTER TABLE embeddings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE search_history ENABLE ROW LEVEL SECURITY;
-
--- Standard user isolation policy example (repeated for each table):
-CREATE POLICY "Users can only access their own profiles"
-ON profiles FOR ALL USING (auth.uid() = id);
-
-CREATE POLICY "Users can only access their own memories"
-ON memories FOR ALL USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can only access their own extracted content"
-ON extracted_content FOR ALL USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can only access their own embeddings"
-ON embeddings FOR ALL USING (auth.uid() = user_id);
-```
-
----
-
-## 5. Hybrid Search PostgreSQL RPC Function
-
-```sql
-CREATE OR REPLACE FUNCTION match_memories(
-    query_embedding VECTOR(768),
-    query_text TEXT,
-    match_threshold FLOAT,
-    match_count INT
-)
-RETURNS TABLE (
-    content_id UUID,
-    memory_id UUID,
-    raw_text TEXT,
-    page_number INT,
-    extracted_entities JSONB,
-    similarity_score FLOAT,
-    lexical_rank FLOAT
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        ec.id AS content_id,
-        ec.memory_id,
-        ec.raw_text,
-        ec.page_number,
-        ec.extracted_entities,
-        (1 - (emb.embedding <=> query_embedding))::FLOAT AS similarity_score,
-        ts_rank(ec.fts_tokens, websearch_to_tsquery('english', query_text))::FLOAT AS lexical_rank
-    FROM extracted_content ec
-    JOIN embeddings emb ON emb.extracted_content_id = ec.id
-    WHERE ec.user_id = auth.uid()
-      AND (
-          (1 - (emb.embedding <=> query_embedding)) > match_threshold
-          OR ec.fts_tokens @@ websearch_to_tsquery('english', query_text)
-      )
-    ORDER BY (
-        (0.65 * (1 - (emb.embedding <=> query_embedding))) +
-        (0.35 * COALESCE(ts_rank(ec.fts_tokens, websearch_to_tsquery('english', query_text)), 0))
-    ) DESC
-    LIMIT match_count;
-END;
-$$;
-```
-
----
-
-## 6. Supabase Storage Architecture
-* **Bucket Name:** `user_files` (Private, RLS Enabled).
-* **Storage Path Scheme:** `{user_id}/{source_id}/{filename}`
-* **Access Control:** Files are accessible only via Supabase signed URLs generated on-demand with a 60-minute expiry for client-side rendering in the Source Inspector.
-
----
-
-## 7. Edge Functions & AI Gateway Architecture
-
-### Edge Function: `ingest-file`
-* **Trigger:** Invoked by client after uploading raw file to Supabase Storage.
-* **Payload:** `{ file_id: "...", storage_path: "...", mime_type: "..." }`
-* **Operations:**
-  1. Authenticates caller token via `auth.uid()`.
-  2. Downloads binary from Supabase Storage.
-  3. Uses Gemini 2.5 Flash (Vision) to extract text, OCR diagrams, and parse structured metadata (deadlines, dates).
-  4. Chunks text (400 tokens / 50 token overlap).
-  5. Generates embeddings using `text-embedding-004`.
-  6. Inserts into `extracted_content` and `embeddings` tables.
-
-### Edge Function: `query-memory`
-* **Trigger:** Invoked when user runs a natural-language search from Omnibar.
-* **Payload:** `{ query: "...", collection_id?: "..." }`
-* **Operations:**
-  1. Generates query vector with `text-embedding-004`.
-  2. Invokes `match_memories` RPC to retrieve top 5 grounded chunks.
-  3. If chunks found, formats strict XML context and prompts Gemini Flash for direct quote extraction + grounded synthesis.
-  4. Logs search query to `search_history`.
-  5. Returns structured JSON containing direct quotes, synthesis, and chunk citations.
-
----
-
-## 8. Environment Variables Configuration
-
-### Client (`.env.local` / Vite)
+### Frontend Environment (`.env.local` / Vite)
 ```env
-VITE_SUPABASE_URL="https://xyzcompany.supabase.co"
+# Supabase Public Configuration (Safe for Client)
+VITE_SUPABASE_URL="https://your-project.supabase.co"
 VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsIn..."
 ```
 
-### Server / Supabase Edge Functions (`supabase/config.toml` or Edge Secrets)
+### Server / Supabase Edge Secrets (`supabase/.env` or Dashboard Secrets)
 ```env
+# Google Gemini API Secrets (SERVER-SIDE ONLY - NEVER EXPOSE TO CLIENT)
 GEMINI_API_KEY="AIzaSy..."
 GEMINI_MODEL="gemini-2.5-flash"
 GEMINI_EMBEDDING_MODEL="text-embedding-004"
+
+# Supabase Service Role (For trusted Edge Function administrative tasks)
 SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsIn..."
 ```
 
 ---
 
-## 9. Extensibility Architecture for Future Sources
-The entity model is designed to support future integrations with zero schema changes:
-* **Gmail Integration:** Creates records in `sources` with `source_type = 'gmail'` and extracts email threads into `extracted_content`.
-* **Google Drive:** Creates records in `sources` with `source_type = 'gdrive'` syncing cloud docs into Supabase Storage.
-* **WhatsApp / Messaging Bot:** Ingests forwarded chat images and voice notes directly into `sources` via webhooks.
+## 5. Security & Isolation Matrix
+
+| Layer | Security Rule / Protection Mechanism |
+| :--- | :--- |
+| **API Keys** | Gemini API key and Supabase `service_role` key exist **only** in server-side Edge Functions. |
+| **Row Level Security** | All 8 database tables have RLS enabled with `USING (auth.uid() = user_id)`. |
+| **Storage Security** | Storage bucket is private; files are served to client via 60-minute signed URLs. |
+| **File Validation** | Upload handler validates MIME types (`application/pdf`, `image/png`, `image/jpeg`, `text/plain`) and rejects payloads > 25MB. |
+
+---
+
+## 6. Architecture Lifecycle: Hackathon vs. Production
+
+| Dimension | Hackathon MVP | Post-Hackathon v1 | Production v2 |
+| :--- | :--- | :--- | :--- |
+| **Ingestion Vectors** | Manual Drag-and-Drop (PDF, PNG, JPG, TXT) | Gmail, Google Drive, Chrome Clipper, WhatsApp bot | Canvas LMS, Notion sync, cross-device background sync |
+| **Search Engine** | Hybrid `pgvector` + PostgreSQL `tsvector` | Re-ranking model (Cohere / Cross-Encoder) | Multi-tenant distributed vector index (Qdrant / Pinecone) |
+| **Processing** | Synchronous Edge Function execution | Asynchronous job queues (BullMQ / Redis) | Dedicated multi-worker OCR & embedding cluster |
+| **Observability** | Console logs & Supabase Edge logs | OpenTelemetry & LangSmith tracing | Real-time APM, automated latency alerts & rate limiting |
+| **Access Control** | Single-user personal RLS isolation | Study group / team collection sharing | Enterprise SSO (SAML / Okta), audit logs, compliance |

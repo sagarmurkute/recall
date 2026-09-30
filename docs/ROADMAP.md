@@ -2,57 +2,114 @@
 
 ---
 
-## 1. Roadmap Overview & Milestones
+## 1. Phased Development Roadmap Overview
 
 ```
-┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
-│    Hackathon MVP    │ ──►  │    Prototype v1     │ ──►  │    Prototype v2     │ ──►  │   Production / V3   │
-│  (React + Supabase) │      │  (Cloud Connectors) │      │   (Agents & Graph)  │      │  (Enterprise Scale) │
-│    [0 - 24 Hours]   │      │    [Weeks 1 - 4]    │      │   [Months 2 - 3]    │      │    [Months 4+]      │
-└─────────────────────┘      └─────────────────────┘      └─────────────────────┘      └─────────────────────┘
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│     PHASE 0     │ ──►  │     PHASE 1     │ ──►  │     PHASE 2     │ ──►  │     PHASE 3     │
+│ Documentation & │      │    Supabase     │      │   Upload &      │      │ Extraction &    │
+│  Architecture   │      │   Foundation    │      │    Storage      │      │    Indexing     │
+└─────────────────┘      └─────────────────┘      └─────────────────┘      └─────────────────┘
+         │
+         ▼
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│     PHASE 4     │ ──►  │     PHASE 5     │ ──►  │     PHASE 6     │ ──►  │  PHASES 7 & 8   │
+│     Search &    │      │ Gemini Grounded │      │   Polished UI   │      │ Demo / PPT &    │
+│    Retrieval    │      │     Answers     │      │   & Inspector   │      │ Post-Hackathon  │
+└─────────────────┘      └─────────────────┘      └─────────────────┘      └─────────────────┘
 ```
 
 ---
 
-## 2. Milestone Breakdown
+## 2. Phase-by-Phase Breakdown
 
-### Phase 1: Hackathon MVP (Target: 24–48 Hours)
-**Objective:** Deliver a live, end-to-end working application with real Supabase infrastructure, vector retrieval, and Gemini-grounded synthesis.
-
-* **Frontend:** React + Vite + TypeScript + Tailwind CSS with Omnibar (`⌘K`), Grounded Answer Box, and Split-Screen Source Inspector.
-* **Backend & DB:** Supabase PostgreSQL with `pgvector`, Full-Text Search (`tsvector`), Supabase Auth, and Supabase Storage for multi-modal uploads.
-* **AI Layer:** Supabase Edge Functions connecting securely to Google Gemini 2.5/1.5 Flash (Vision OCR & Synthesis) and `text-embedding-004` (embeddings) with zero client-side key exposure.
-* **Security:** Row Level Security (RLS) enabled on all tables; private storage buckets with signed URLs.
-* **Deliverable:** Live demo ready to ingest PDFs, screenshots, and notes, answering student queries with verifiable citations in under 3 seconds.
-
----
-
-### Phase 2: Prototype v1 (Ambient Connectors & Extensions: 1 Month)
-**Objective:** Broaden data ingestion vectors and automate student capture workflows.
-
-* **Features:**
-  - **Gmail & Google Drive Importers:** Server-side OAuth sync bringing course announcements, syllabus updates, and shared Drive PDFs into `sources`.
-  - **Chrome Web Clipper Extension:** 1-click capture of Canvas/Blackboard pages, online problem sets, and research articles.
-  - **WhatsApp & Telegram Forwarding Bot:** Students forward whiteboard photos and voice notes directly into Supabase Storage.
-  - **Auto-Tagging Course Classifier:** Automatically categorizes new uploads into course collections (`#CS210`, `#CHEM101`).
+### PHASE 0: Documentation & Architecture *(Current Status)*
+* [x] Define product philosophy, guiding principles, and boundaries ([`PRODUCT_VISION.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/PRODUCT_VISION.md)).
+* [x] Lock Hackathon MVP scope, user stories, and non-goals ([`PRD.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/PRD.md)).
+* [x] Define user flows and interaction states ([`USER_FLOWS.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/USER_FLOWS.md)).
+* [x] Specify server-side Gemini AI & prompt architecture ([`AI_SPEC.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/AI_SPEC.md)).
+* [x] Specify React + Vite + Tailwind + Supabase architecture ([`TECH_SPEC.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/TECH_SPEC.md)).
+* [x] Specify UI components, typography, and light-first palette ([`UI_SPEC.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/UI_SPEC.md)).
+* [x] Specify database schema, RLS, and storage rules ([`SUPABASE_SCHEMA.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/SUPABASE_SCHEMA.md)).
+* [x] Create 2-minute & 3-minute live pitch script ([`DEMO_SCRIPT.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/DEMO_SCRIPT.md)).
 
 ---
 
-### Phase 3: Prototype v2 (Deep Intelligence & Proactivity: 2–3 Months)
-**Objective:** Evolve Recall into an active, proactive study assistant.
-
-* **Features:**
-  - **Cross-Document Knowledge Graph:** Maps semantic links across lecture notes, homework rubrics, and textbook excerpts.
-  - **Automated Deadline & Exam Calendar:** Aggregates extracted deadlines into an interactive student calendar view.
-  - **Exam Cram Generator:** Generates custom practice questions grounded strictly in the student's uploaded materials.
-  - **Background Batch Processing:** Asynchronous queue for deep OCR and document indexing.
+### PHASE 1: Supabase Foundation
+* [ ] Initialize Supabase project instance (local or hosted).
+* [ ] Execute initial database migration `001_initial_schema.sql` (enabling `pgvector` and `uuid-ossp`).
+* [ ] Configure Row Level Security (RLS) policies on all tables.
+* [ ] Configure private Supabase Storage bucket `user_files` with MIME-type and size validation (25MB max).
+* [ ] Setup Supabase Auth configuration (Email/Password or guest demo login).
 
 ---
 
-### Phase 4: Production Architecture & Scaling (4+ Months)
-**Objective:** Enterprise-grade reliability, multi-device synchronization, and offline capabilities.
+### PHASE 2: Core Upload & Storage
+* [ ] Setup React + Vite + TypeScript frontend boilerplate with Tailwind CSS.
+* [ ] Configure Supabase client connection (`@supabase/supabase-js`) in frontend with env validation.
+* [ ] Build multi-modal Drag-and-Drop Ingestion Zone supporting PDF, PNG, JPG, and TXT files.
+* [ ] Upload raw binaries to Supabase Storage under `{user_id}/{source_id}/{filename}` path.
+* [ ] Populate `sources` and `files` records in PostgreSQL.
 
-* **Features:**
-  - **Advanced AI Agents:** Autonomous agents that cross-compare assignments against lecture content to identify knowledge gaps.
-  - **Fine-Grained Privacy & Encryption:** Zero-knowledge metadata indexing and end-to-end encryption for stored documents.
-  - **Cross-Platform Native Apps:** Native desktop (Electron / Tauri) and mobile (React Native) companion apps with global keyboard shortcuts.
+---
+
+### PHASE 3: Content Extraction & Indexing
+* [ ] Build `ingest-file` Supabase Edge Function (or backend extraction handler).
+* [ ] Integrate Google Gemini Vision API for screenshot OCR, whiteboard parsing, and diagram understanding.
+* [ ] Implement semantic chunking (400 tokens with 50-token overlap).
+* [ ] Extract structured entities (deadlines, dates, formulas) into JSONB.
+* [ ] Generate 768-dimensional embeddings using `GEMINI_EMBEDDING_MODEL` (e.g., `text-embedding-004`).
+* [ ] Insert parsed chunks into `extracted_content` and embeddings into `embeddings` table.
+
+---
+
+### PHASE 4: Search & Retrieval
+* [ ] Deploy `match_memories` PostgreSQL RPC function for hybrid retrieval.
+* [ ] Implement vector cosine distance querying via `pgvector` (`HNSW` index).
+* [ ] Implement Full-Text Search ranking via PostgreSQL `tsvector` and `websearch_to_tsquery`.
+* [ ] Build query preprocessing and top-K candidate chunk selection (`top_k = 5`).
+
+---
+
+### PHASE 5: Gemini Grounded Answers
+* [ ] Build `query-memory` Supabase Edge Function with secure server-side Gemini API key management.
+* [ ] Implement strict grounded system prompt enforcing source-first truth.
+* [ ] Generate structured response separating **Verified Direct Quotes** from **AI Synthesis**.
+* [ ] Implement citation token validation `[SRC-#]` linking to `extracted_content.id`.
+* [ ] Implement fallback handling for queries with insufficient source data (*"Not found in your saved sources"*).
+
+---
+
+### PHASE 6: Polished UI & Inspector
+* [ ] Build the 7 core Hackathon UI screens:
+  1. Landing / Sign-In
+  2. Dashboard (Recent memories feed)
+  3. Upload Modal / Drag-and-Drop Zone
+  4. Search Omnibar (`⌘K`)
+  5. Search Results View
+  6. Split-Screen Source Inspector (Left: Extracted facts, Right: Signed-URL PDF/Image Viewer)
+  7. Basic Settings / Profile
+* [ ] Implement micro-interactions, responsive states, skeleton shimmers, and error states.
+* [ ] Ensure zero generic chatbot windows and zero bento-grid layouts.
+
+---
+
+### PHASE 7: Hackathon Demo & Presentation
+* [ ] Pre-load student demo dataset:
+  - `DBMS_Course_Syllabus.pdf`
+  - `BuildX_Hackathon_Schedule.png`
+  - `College_Timetable_Fall.pdf`
+  - `Merit_Scholarship_Notice.png`
+  - `Midterm_Exam_Schedule.txt`
+* [ ] Rehearse 2-minute and 3-minute demo pitches following [`DEMO_SCRIPT.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/DEMO_SCRIPT.md).
+* [ ] Prepare offline fail-safe assets and recorded video walkthrough.
+
+---
+
+### PHASE 8: Post-Hackathon Roadmap & Integrations
+*(Intentionally deferred beyond the Hackathon MVP)*
+* **Ambient Cloud Importers:** Gmail OAuth sync, Google Drive automated folder watcher, Canvas LMS connector.
+* **Mobile & Chat Ingestion:** WhatsApp and Telegram bot forwarding for whiteboard photos and voice notes.
+* **Browser Extension:** Chrome Web Clipper for 1-click capture of syllabus pages and online articles.
+* **Advanced Study Agents:** Proactive exam cram sheet generator, flashcards, and cross-document concept graph.
+* **Production Scaling:** Asynchronous background job queue (BullMQ/Temporal), Redis caching, and enterprise multi-region storage.

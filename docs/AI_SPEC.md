@@ -2,83 +2,77 @@
 
 ---
 
-## 1. Google Gemini Architectural Role & Boundaries
+## 1. Architectural Role of Google Gemini
+In Recall, **Google Gemini operates as the reasoning, multi-modal extraction, and synthesis engine**, while PostgreSQL (with `pgvector` and Full-Text Search) handles indexing and deterministic retrieval.
 
-In Recall, **Google Gemini operates as the reasoning and extraction engine**, while PostgreSQL (with `pgvector` and Full-Text Search) acts as the retrieval and indexing layer.
-
-### Key Architectural Boundaries:
-* **Zero Client-Side Exposure:** Gemini API keys are **never** bundled with client-side React/Vite code. All AI calls originate strictly from secure **Supabase Edge Functions**.
-* **Separation of Retrieval and Synthesis:** Gemini does not act as a blind database. PostgreSQL retrieves grounded candidate chunks via hybrid vector/lexical search, and Gemini synthesizes verifiable answers strictly constrained to those retrieved chunks.
-* **Multi-Modal Understanding:** Gemini 2.5 / 1.5 Flash is used for OCR of screenshots, whiteboard photos, and complex PDF page layouts.
-* **Embedding Model:** Google `text-embedding-004` generates 768-dimensional dense vectors stored directly in PostgreSQL via `pgvector`.
+### Key AI Principles:
+1. **Zero Client-Side Key Exposure:** Gemini API keys are never bundled with frontend code. All AI operations are executed inside authenticated **Supabase Edge Functions**.
+2. **Configurable Model Architecture:** Model names are configurable via environment variables (`GEMINI_MODEL`, `GEMINI_EMBEDDING_MODEL`). Model identifiers must be verified against current Google Gemini API availability before implementation.
+3. **Strict Separation of Truth Categories:**
+   - **Category A (Direct Grounded Facts):** Verbatim quotes pulled directly from uploaded sources.
+   - **Category B (AI Synthesis & Summary):** Structured explanations, context clarifications, and relevance reasoning.
+   - **Category C (Missing / Not Found):** Explicit statement when evidence is absent in the user's data pool.
 
 ---
 
-## 2. End-to-End AI Data Flow
+## 2. Decoupled AI Pipeline Architecture
 
 ```
-[User Uploads File to Supabase Storage]
-                 │
-                 ▼
-[Supabase Edge Function: /ingest-file]
-                 │
-                 ├──────────────────────────────┐
-                 ▼                              ▼
-  [Gemini Flash Vision OCR]            [Gemini Structured Extractor]
-  (Extracts raw text, formulas,        (Extracts deadlines, dates,
-   diagram labels from images/PDFs)     professors, course codes)
-                 │                              │
-                 └──────────────┬───────────────┘
-                                ▼
-                   [Semantic Text Chunking]
-                    (400 tokens + 50 overlap)
-                                │
-                                ▼
-                 [text-embedding-004 Embedding]
-                                │
-                                ▼
-         [PostgreSQL DB: extracted_content & embeddings]
-                                │
-                                │
-[User Search Query via Omnibar] ┤
-                                ▼
+[User Query from Omnibar]
+           │
+           ▼
 [Supabase Edge Function: /query-memory]
-                                │
-                                ▼
-           [PostgreSQL match_memories Hybrid RPC]
-            (pgvector cosine + FTS5 tsvector rank)
-                                │
-                                ▼ Top 5 Grounded Chunks
-           [Gemini Flash Grounded Synthesis Prompt]
-                                │
-                                ▼
-      [Grounded Answer + Verbatim Quotes + Citation Links]
+           │
+           ├──────────────────────────────┐
+           ▼                              ▼
+ [Generate Query Embedding]      [Sanitize & Tokenize]
+  (GEMINI_EMBEDDING_MODEL)       (Lexical Search Query)
+           │                              │
+           └──────────────┬───────────────┘
+                          ▼
+             [PostgreSQL: match_memories]
+         (pgvector Cosine + FTS tsvector Rank)
+                          │
+                          ▼ Top 5 Candidate Chunks
+           [Context Assembly & Grounding Guard]
+                          │
+        ┌─────────────────┴─────────────────┐
+        ▼ (Chunks Found > 0.55)             ▼ (No Chunks Found)
+[Gemini Generative Synthesis]         [Return NOT_FOUND State]
+ (Strict Grounded System Prompt)       (Refuses to hallucinate)
+        │
+        ▼
+[Structured Response: Quotes + Synthesis + Citations]
 ```
 
 ---
 
-## 3. Ingestion & Multi-Modal Understanding
+## 3. Multi-Modal Ingestion & Vision OCR
 
-### Multi-Modal Extraction Protocol
-1. **PDFs:** Edge function downloads PDF binary from Supabase Storage. Text layers are extracted directly; scanned pages or diagram-rich pages are rendered to images and processed via Gemini Vision.
-2. **Images / Screenshots:** Direct payload pass to `gemini-2.5-flash` with the Multi-Modal Extraction Prompt.
-3. **Structured Entity Extraction Schema:**
-During ingestion, Gemini extracts structured metadata stored in `extracted_content.extracted_entities`:
+### Supported Ingestion Media (Hackathon MVP):
+* **PDFs (`application/pdf`):** Extracts digital text layers and converts image-heavy/scanned pages into image frames for Gemini Vision OCR.
+* **Screenshots & Photos (`image/png`, `image/jpeg`):** Processed via `gemini-2.5-flash` / `gemini-1.5-flash` Vision to transcribe text, whiteboard handwriting, and diagram labels.
+* **Plain Text Notes (`text/plain`, `text/markdown`):** Direct UTF-8 ingestion.
+
+### Structured Entity Extraction Output:
+During ingestion, the Edge Function invokes Gemini with structured JSON output enforcement:
 ```json
 {
-  "title": "CS210 Fall 2026 - Syllabus",
-  "summary": "Covers course outline, 15% late penalty, and exam dates.",
-  "course_code": "CS210",
-  "deadlines": [
-    {
-      "item": "Lab 1 Submission",
-      "date": "2026-10-15",
-      "time": "23:59",
-      "details": "Submitted via Gradescope with 15% daily late deduction"
-    }
-  ],
-  "people": ["Prof. Miller", "TA Sarah"],
-  "topics": ["Algorithms", "Graph Traversal", "Dijkstra"]
+  "title": "DBMS Assignment 2 Guidelines",
+  "summary": "Covers relational algebra questions, late penalties, and due date.",
+  "document_type": "syllabus_or_assignment",
+  "extracted_entities": {
+    "deadlines": [
+      {
+        "item": "DBMS Assignment 2",
+        "date": "2026-10-24",
+        "time": "23:59",
+        "details": "Submitted via Canvas with 10% daily late deduction"
+      }
+    ],
+    "key_topics": ["Relational Algebra", "Tuple Calculus", "SQL Joins"],
+    "instructors": ["Prof. Sharma"]
+  }
 }
 ```
 
@@ -86,42 +80,48 @@ During ingestion, Gemini extracts structured metadata stored in `extracted_conte
 
 ## 4. Grounded Prompt Architecture
 
-### System Prompt for `/query-memory` Edge Function
+### System Prompt for `/query-memory`
 ```text
-You are Recall, an academic retrieval and personal memory assistant.
-You must answer the student's question STRICTLY and ONLY using the provided source chunks below.
+You are Recall, a high-precision academic retrieval assistant.
+Your task is to answer the student's question STRICTLY and ONLY using the provided source chunks below.
 
-CONSTRAINTS & PROTOCOLS:
-1. GROUNDED TRUTH ONLY: Use ONLY the information provided inside <sources>. Do NOT guess, speculate, or draw from outside general knowledge.
-2. VERBATIM QUOTES: In the "direct_quotes" array, provide exact verbatim strings directly copied from the sources, paired with their source_id and page number.
-3. CONCISE SYNTHESIS: In the "synthesis" field, provide a clear, direct answer in 2-3 sentences.
-4. CITATION TOKENS: When stating facts in the synthesis, reference the source using [SRC-ID].
-5. NOT FOUND PROTOCOL: If the answer is NOT present in the sources, you must return:
+CORE OPERATIONAL RULES:
+1. SOURCE-FIRST TRUTH: You must ONLY use facts stated in the provided <sources>. Do NOT extrapolate, assume, or draw from outside knowledge.
+2. DUAL RESPONSE DISTINCTION:
+   - "direct_quotes": Extract exact verbatim sentences directly from the sources with their source_id and page number.
+   - "synthesis": Provide a concise 2-3 sentence direct answer summarizing the context in plain English.
+   - "relevance_explanation": Explain in one sentence why this source was selected.
+3. CITATIONS: Use standard citation markers [SRC-#] whenever referring to facts in the synthesis.
+4. INSUFFICIENT EVIDENCE / NOT FOUND:
+   If the answer is NOT explicitly contained in the sources, you MUST return:
    {
      "status": "NOT_FOUND",
-     "message": "This information was not found in your saved materials.",
+     "message": "I could not find information regarding this question in your saved materials.",
      "direct_quotes": [],
      "synthesis": ""
    }
+   NEVER invent or hypothesize an answer if it is absent from the sources.
 
 <sources>
 {{RETRIEVED_CHUNKS_XML}}
 </sources>
 
-QUESTION: {{USER_QUERY}}
+STUDENT QUESTION: {{USER_QUERY}}
 ```
 
 ---
 
 ## 5. Confidence Scoring & Hallucination Prevention
 
-* **Threshold Filtering:** If top chunk vector similarity in `match_memories` is `< 0.55` and FTS rank is `0`, the Edge function skips the Gemini synthesis call entirely and returns an immediate `"NOT_FOUND"` response to preserve latency and prevent hallucination.
-* **Citation Verification:** The Edge function validates that every `[SRC-ID]` cited by Gemini corresponds to an actual chunk in the retrieved set.
-* **Side-by-Side Direct Quotes:** The UI always displays the raw text quote alongside Gemini's synthesis, giving the user immediate verification capability.
+| Level | Condition | System Action |
+| :--- | :--- | :--- |
+| **High Confidence** | pgvector similarity > 0.75 OR exact FTS keyword hit | Generates synthesis with verified green citation badge. |
+| **Moderate Confidence** | pgvector similarity between 0.55–0.75 | Generates synthesis with source context highlight. |
+| **Insufficient Evidence** | pgvector similarity < 0.55 and FTS rank = 0 | Bypasses Gemini generation entirely; returns immediate `"NOT_FOUND"` response. |
 
 ---
 
 ## 6. Privacy & Security Safeguards
-* **No User Data Retention for Training:** Gemini API calls are made with standard developer enterprise flags disabling training on customer payloads.
-* **Server-Side Key Isolation:** Gemini API keys are stored solely as environment secrets in Supabase Edge Functions.
-* **Tenant Isolation:** Queries to PostgreSQL always include `WHERE user_id = auth.uid()` enforced by database RLS.
+* **Zero Training Retention:** Gemini API requests utilize standard developer enterprise flags to prevent training on student data.
+* **Server-Side API Key Storage:** Gemini API keys are maintained solely within Supabase Edge Secrets.
+* **Tenant Isolation:** Ingestion and retrieval are always scoped to the authenticated student's `auth.uid()`.
