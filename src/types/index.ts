@@ -1,6 +1,8 @@
 import type { Database } from './database';
 
 export * from './database';
+export * from './activity';
+export * from './memory';
 
 export type Profile = Database['public']['Tables']['profiles']['Row'];
 export type ProfileInsert = Database['public']['Tables']['profiles']['Insert'];
@@ -21,10 +23,6 @@ export type DocumentUpdate = Database['public']['Tables']['documents']['Update']
 export type DocumentChunk = Database['public']['Tables']['document_chunks']['Row'];
 export type DocumentChunkInsert = Database['public']['Tables']['document_chunks']['Insert'];
 export type DocumentChunkUpdate = Database['public']['Tables']['document_chunks']['Update'];
-
-export type ActivityEvent = Database['public']['Tables']['activity_events']['Row'];
-export type ActivityEventInsert = Database['public']['Tables']['activity_events']['Insert'];
-export type ActivityEventUpdate = Database['public']['Tables']['activity_events']['Update'];
 
 export type SearchHistory = Database['public']['Tables']['search_history']['Row'];
 export type SearchHistoryInsert = Database['public']['Tables']['search_history']['Insert'];
