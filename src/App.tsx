@@ -9,7 +9,8 @@ import { Navbar } from './components/Navbar';
 import { AuthForm } from './components/AuthForm';
 import { FileUpload } from './components/FileUpload';
 import { SourceList } from './components/SourceList';
-import { ShieldCheck, HardDrive, RefreshCw, AlertCircle } from 'lucide-react';
+import { ChunkViewerModal } from './components/ChunkViewerModal';
+import { ShieldCheck, HardDrive, RefreshCw, AlertCircle, Layers } from 'lucide-react';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -18,6 +19,7 @@ export function App() {
 
   const [sources, setSources] = useState<Source[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [selectedSourceForChunks, setSelectedSourceForChunks] = useState<Source | null>(null);
 
   // Backend config diagnostics (if env is missing or needs setup)
   const [backendStatus, setBackendStatus] = useState<BackendStatusReport | null>(null);
@@ -30,13 +32,20 @@ export function App() {
       const { data, error } = await sourcesService.getSources();
       if (!error && data) {
         setSources(data);
+        // If chunk inspector modal is open, refresh selected source
+        if (selectedSourceForChunks) {
+          const updatedSelected = data.find((s) => s.id === selectedSourceForChunks.id);
+          if (updatedSelected) {
+            setSelectedSourceForChunks(updatedSelected);
+          }
+        }
       }
     } catch (err) {
       console.error('[Recall] Error fetching sources:', err);
     } finally {
       setSourcesLoading(false);
     }
-  }, [user]);
+  }, [user, selectedSourceForChunks]);
 
   // Initial Auth Check & Session Listener
   useEffect(() => {
@@ -85,6 +94,7 @@ export function App() {
     await authService.signOut();
     setSession(null);
     setUser(null);
+    setSelectedSourceForChunks(null);
   };
 
   const runDiagnosticCheck = async () => {
@@ -121,7 +131,7 @@ export function App() {
               Supabase Configuration Required
             </h1>
             <p className="text-xs sm:text-sm text-slate-600">
-              Recall requires your Supabase project URL and Anon public key to initialize authentication and private storage.
+              Recall requires your Supabase project URL and Anon public key to initialize authentication, database, and private storage.
             </p>
           </div>
 
@@ -189,7 +199,7 @@ export function App() {
               <span className="font-semibold text-slate-900 tracking-tight text-lg">Recall</span>
             </div>
             <div className="text-xs text-slate-500 font-mono">
-              BuildX Hackathon &bull; Phase 2
+              BuildX Hackathon &bull; Phase 3: Extraction & Indexing
             </div>
           </div>
         </header>
@@ -200,7 +210,7 @@ export function App() {
               "You already have the answer. Recall finds it."
             </h1>
             <p className="text-sm text-slate-600 max-w-md mx-auto">
-              Securely store and retrieve your college syllabi, lecture slides, whiteboard screenshots, and notes.
+              Securely ingest and extract searchable chunks from your college syllabi, lecture slides, whiteboard screenshots, and notes.
             </p>
           </div>
 
@@ -228,7 +238,7 @@ export function App() {
           <div>
             <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">Your Digital Memory Vault</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Upload course files and screenshots to your private, encrypted storage vault.
+              Upload course files and screenshots. Recall automatically extracts readable text and generates searchable chunks.
             </p>
           </div>
 
@@ -238,8 +248,12 @@ export function App() {
               <span className="font-medium">RLS Active</span>
             </div>
             <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
+              <Layers className="w-3.5 h-3.5 text-blue-600" />
+              <span className="font-medium">Auto-Chunking</span>
+            </div>
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 shadow-2xs">
               <HardDrive className="w-3.5 h-3.5 text-purple-600" />
-              <span className="font-medium">user_files bucket</span>
+              <span className="font-medium">user_files</span>
             </div>
           </div>
         </div>
@@ -248,24 +262,36 @@ export function App() {
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
-              Upload Materials
+              Upload & Extract Materials
             </h2>
           </div>
           <FileUpload userId={user.id} onUploadComplete={loadSources} />
         </section>
 
-        {/* Section 2: Stored Sources List */}
+        {/* Section 2: Stored Sources List with Chunk Inspector */}
         <section className="pt-2">
           <SourceList
             sources={sources}
             loading={sourcesLoading}
+            userId={user.id}
             onRefresh={loadSources}
+            onSelectSourceForChunks={(src) => setSelectedSourceForChunks(src)}
           />
         </section>
       </main>
 
+      {/* Chunk Viewer Modal */}
+      {selectedSourceForChunks && user && (
+        <ChunkViewerModal
+          source={selectedSourceForChunks}
+          userId={user.id}
+          onClose={() => setSelectedSourceForChunks(null)}
+          onSourceUpdated={loadSources}
+        />
+      )}
+
       <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
-        Recall &copy; 2026 &bull; BuildX Hackathon &bull; Phase 2: Ingestion & Storage
+        Recall &copy; 2026 &bull; BuildX Hackathon &bull; Phase 3: Content Extraction & Chunking
       </footer>
     </div>
   );

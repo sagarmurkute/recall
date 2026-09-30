@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { sourcesService } from '../services/sourcesService';
+import { processingPipeline } from '../services/processingPipeline';
 import { UploadCloud, FileText, Image as ImageIcon, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface FileUploadProps {
@@ -18,24 +19,38 @@ export const FileUpload: React.FC<FileUploadProps> = ({ userId, onUploadComplete
   const handleFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
-    const file = files[0]; // Process single file at a time for Phase 2
+    const file = files[0];
     setError(null);
     setSuccess(null);
     setUploading(true);
-    setProgressStatus(`Uploading "${file.name}" to private storage...`);
+    setProgressStatus(`Step 1/2: Uploading "${file.name}" to private storage...`);
 
     try {
-      const { data, error: uploadErr } = await sourcesService.uploadSourceFile(file, userId);
+      // 1. Upload file and insert source record
+      const { data: sourceRecord, error: uploadErr } = await sourcesService.uploadSourceFile(file, userId);
 
-      if (uploadErr || !data) {
-        setError(uploadErr?.message || 'Failed to upload file.');
-      } else {
-        setSuccess(`"${file.name}" uploaded successfully and recorded in sources!`);
-        onUploadComplete();
+      if (uploadErr || !sourceRecord) {
+        throw new Error(uploadErr?.message || 'Failed to upload file.');
       }
+
+      onUploadComplete(); // Refresh UI to show 'uploaded' or 'processing'
+
+      // 2. Automatically run text extraction and chunking pipeline
+      setProgressStatus(`Step 2/2: Extracting readable text & generating chunks...`);
+      const processResult = await processingPipeline.processSource(sourceRecord, userId);
+
+      if (!processResult.success) {
+        setError(`Uploaded, but extraction warning: ${processResult.error}`);
+      } else {
+        setSuccess(
+          `"${file.name}" processed successfully into ${processResult.chunkCount} searchable chunks!`
+        );
+      }
+      onUploadComplete(); // Refresh UI to show 'ready' with chunk count
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Upload failed.';
+      const msg = err instanceof Error ? err.message : 'Upload and processing failed.';
       setError(msg);
+      onUploadComplete();
     } finally {
       setUploading(false);
       setProgressStatus(null);
@@ -95,7 +110,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ userId, onUploadComplete
 
           <div>
             <div className="text-sm font-semibold text-slate-800">
-              {uploading ? 'Processing Upload...' : 'Drop your files here, or click to browse'}
+              {uploading ? 'Ingesting and Chunking Document...' : 'Drop your files here, or click to browse'}
             </div>
             <p className="text-xs text-slate-500 mt-1">
               Supports <span className="font-medium text-slate-700">PDF, TXT, PNG, JPG</span> up to 25MB
@@ -110,13 +125,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ userId, onUploadComplete
             </span>
             <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-slate-100 text-slate-600 border border-slate-200">
               <ImageIcon className="w-3 h-3 mr-1 text-slate-500" />
-              PNG / JPG
+              PNG / JPG (OCR)
             </span>
           </div>
         </div>
       </div>
 
-      {/* Upload State Feedback */}
+      {/* Upload & Extraction State Feedback */}
       {uploading && progressStatus && (
         <div className="mt-3.5 p-3 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-800 flex items-center space-x-2.5">
           <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />

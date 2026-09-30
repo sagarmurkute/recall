@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { Source } from '../types';
 import { sourcesService } from '../services/sourcesService';
+import { processingPipeline } from '../services/processingPipeline';
 import { 
   FileText, 
   Image as ImageIcon, 
@@ -9,18 +10,32 @@ import {
   Trash2, 
   ExternalLink, 
   Loader2, 
-  FolderArchive 
+  FolderArchive,
+  Layers,
+  Play,
+  CheckCircle2,
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 
 interface SourceListProps {
   sources: Source[];
   loading: boolean;
+  userId: string;
   onRefresh: () => void;
+  onSelectSourceForChunks?: (source: Source) => void;
 }
 
-export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefresh }) => {
+export const SourceList: React.FC<SourceListProps> = ({ 
+  sources, 
+  loading, 
+  userId,
+  onRefresh, 
+  onSelectSourceForChunks 
+}) => {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const formatFileSize = (bytes: number): string => {
@@ -56,7 +71,8 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
     }
   };
 
-  const handleOpenSignedUrl = async (source: Source) => {
+  const handleOpenSignedUrl = async (source: Source, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!source.storage_path) return;
     setOpeningId(source.id);
     setActionError(null);
@@ -76,7 +92,8 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
     }
   };
 
-  const handleDelete = async (source: Source) => {
+  const handleDelete = async (source: Source, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!window.confirm(`Delete "${source.title}" from Recall?`)) return;
     setDeletingId(source.id);
     setActionError(null);
@@ -96,9 +113,63 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
     }
   };
 
-  const getStatus = (source: Source): string => {
+  const handleProcess = async (source: Source, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProcessingId(source.id);
+    setActionError(null);
+
+    try {
+      const result = await processingPipeline.processSource(source, userId);
+      if (!result.success) {
+        setActionError(`Extraction failed for "${source.title}": ${result.error}`);
+      }
+      onRefresh();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Processing error';
+      setActionError(msg);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const getStatus = (source: Source): { status: string; chunkCount?: number } => {
     const meta = source.metadata as Record<string, unknown> | null;
-    return typeof meta?.status === 'string' ? meta.status : 'uploaded';
+    const status = typeof meta?.status === 'string' ? meta.status : 'uploaded';
+    const chunkCount = typeof meta?.chunk_count === 'number' ? meta.chunk_count : undefined;
+    return { status, chunkCount };
+  };
+
+  const renderStatusBadge = (status: string, chunkCount?: number) => {
+    switch (status) {
+      case 'ready':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+            Ready {chunkCount !== undefined && `(${chunkCount} chunks)`}
+          </span>
+        );
+      case 'processing':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+            <Loader2 className="w-3 h-3 mr-1 animate-spin text-blue-600" />
+            Processing
+          </span>
+        );
+      case 'failed':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-red-50 text-red-700 border border-red-200">
+            <AlertCircle className="w-3 h-3 mr-1 text-red-600" />
+            Failed
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+            <Clock className="w-3 h-3 mr-1 text-amber-600" />
+            Uploaded
+          </span>
+        );
+    }
   };
 
   return (
@@ -128,7 +199,7 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
           <FolderArchive className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <h3 className="text-sm font-semibold text-slate-800">No sources uploaded yet</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-            Drop your PDFs, screenshots, or notes above to store them in your private memory vault.
+            Drop your PDFs, screenshots, or notes above to store and extract searchable chunks.
           </p>
         </div>
       ) : (
@@ -140,22 +211,28 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
                   <th className="py-3.5 px-4 font-medium">Source / File</th>
                   <th className="py-3.5 px-4 font-medium">Type</th>
                   <th className="py-3.5 px-4 font-medium">Size</th>
-                  <th className="py-3.5 px-4 font-medium">Status</th>
+                  <th className="py-3.5 px-4 font-medium">Extraction Status</th>
                   <th className="py-3.5 px-4 font-medium">Uploaded</th>
                   <th className="py-3.5 px-4 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {sources.map((source) => {
-                  const status = getStatus(source);
+                  const { status, chunkCount } = getStatus(source);
+                  const isBusy = processingId === source.id;
+
                   return (
-                    <tr key={source.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr 
+                      key={source.id} 
+                      onClick={() => onSelectSourceForChunks && onSelectSourceForChunks(source)}
+                      className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                    >
                       <td className="py-3 px-4">
                         <div className="flex items-center space-x-2.5">
                           <div className="p-2 rounded-lg bg-slate-100 border border-slate-200/60 shrink-0">
                             {getSourceIcon(source.source_type)}
                           </div>
-                          <div className="truncate max-w-[240px] sm:max-w-xs">
+                          <div className="truncate max-w-[220px] sm:max-w-xs">
                             <span className="font-medium text-slate-900 truncate block" title={source.title}>
                               {source.title}
                             </span>
@@ -174,19 +251,43 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
                         {formatFileSize(source.file_size_bytes)}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />
-                          {status}
-                        </span>
+                        {renderStatusBadge(status, chunkCount)}
                       </td>
                       <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
                         {formatDate(source.created_at)}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <div className="inline-flex items-center space-x-1.5">
+                        <div className="inline-flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
+                          {/* Process / Re-Process Button */}
+                          <button
+                            onClick={(e) => handleProcess(source, e)}
+                            disabled={isBusy}
+                            className="inline-flex items-center space-x-1 px-2 py-1 text-[11px] font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg transition-colors"
+                            title={status === 'ready' ? 'Re-extract text and chunks' : 'Extract text and create chunks'}
+                          >
+                            {isBusy ? (
+                              <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                            ) : (
+                              <Play className="w-3 h-3 text-slate-600" />
+                            )}
+                            <span className="hidden sm:inline">
+                              {status === 'ready' ? 'Re-Chunk' : 'Process'}
+                            </span>
+                          </button>
+
+                          {/* Inspect Chunks Button */}
+                          <button
+                            onClick={() => onSelectSourceForChunks && onSelectSourceForChunks(source)}
+                            className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                            title="Inspect Extracted Chunks"
+                          >
+                            <Layers className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Open Storage View */}
                           {source.storage_path && (
                             <button
-                              onClick={() => handleOpenSignedUrl(source)}
+                              onClick={(e) => handleOpenSignedUrl(source, e)}
                               disabled={openingId === source.id}
                               className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
                               title="Open Private Storage View (Signed URL)"
@@ -198,8 +299,10 @@ export const SourceList: React.FC<SourceListProps> = ({ sources, loading, onRefr
                               )}
                             </button>
                           )}
+
+                          {/* Delete */}
                           <button
-                            onClick={() => handleDelete(source)}
+                            onClick={(e) => handleDelete(source, e)}
                             disabled={deletingId === source.id}
                             className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
                             title="Delete Source"
