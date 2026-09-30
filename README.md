@@ -13,10 +13,22 @@ Students accumulate hundreds of information fragments every week across slides, 
 
 ## 💡 The Solution
 Recall acts as an ambient cognitive index that:
-1. **Ingests Multi-Modal Inputs:** Seamlessly processes PDFs, PNG/JPG screenshots, photos, and raw text notes.
-2. **Separates Retrieval from AI Reasoning:** Uses fast hybrid search (vector embeddings + BM25 lexical search) to deterministically retrieve relevant document chunks before engaging the AI model.
-3. **Grounds Answers in Source Documents:** Uses **Google Gemini** to synthesize answers while enforcing a strict distinction between **Verified Direct Quotes** and **AI Explanations**.
-4. **Enables 1-Click Verification:** Every fact is linked directly to its original source page or screenshot bounding box.
+1. **Ingests Multi-Modal Inputs:** Seamlessly processes PDFs, PNG/JPG screenshots, photos, and raw text notes into secure **Supabase Storage**.
+2. **Separates Retrieval from AI Reasoning:** Uses PostgreSQL **Hybrid Search** (`pgvector` + Full-Text Search `tsvector`) to deterministically retrieve relevant document chunks before engaging the AI model.
+3. **Grounds Answers in Source Documents:** Uses **Google Gemini** via secure Supabase Edge Functions to synthesize answers while enforcing a strict distinction between **Verified Direct Quotes** and **AI Explanations**.
+4. **Guarantees Privacy & Verification:** Row Level Security (RLS) protects user data, and every fact is linked directly to its original source page or screenshot view via temporary signed URLs.
+
+---
+
+## 🛠️ Technology Architecture
+
+* **Frontend:** React 19, Vite, TypeScript, Tailwind CSS, Lucide React, Radix UI
+* **Backend & Auth:** Supabase (Auth, PostgreSQL, Row Level Security, Edge Functions)
+* **Storage:** Supabase Storage (Private Buckets for PDFs, screenshots, notes)
+* **Database & Search:** PostgreSQL with `pgvector` (768-dim embeddings) and Full-Text Search (`tsvector` / `tsquery`)
+* **AI Provider:** Google Gemini 2.5 / 1.5 Flash (Vision OCR & Grounded Synthesis) via secure Edge Functions
+* **Embedding Model:** Google `text-embedding-004`
+* **Security:** Strict Row Level Security (RLS), private Supabase Storage, and zero client-side API key exposure
 
 ---
 
@@ -28,33 +40,14 @@ All architectural, functional, and design specifications are documented in the [
 | :--- | :--- |
 | **[PRODUCT_VISION.md](file:///c:/Users/Sagar/Desktop/buildx/docs/PRODUCT_VISION.md)** | Core product philosophy, guiding principles, mission, and differentiation from traditional search & chatbots. |
 | **[PRD.md](file:///c:/Users/Sagar/Desktop/buildx/docs/PRD.md)** | Product Requirements Document: user personas, pain points, MVP feature scope, functional/non-functional requirements, and success metrics. |
-| **[USER_FLOWS.md](file:///c:/Users/Sagar/Desktop/buildx/docs/USER_FLOWS.md)** | Step-by-step user interaction flows: onboarding, file ingestion, natural-language search, source inspection, and organization. |
-| **[AI_SPEC.md](file:///c:/Users/Sagar/Desktop/buildx/docs/AI_SPEC.md)** | Google Gemini integration specification, prompt engineering templates, grounding protocols, confidence metrics, and hallucination prevention. |
-| **[TECH_SPEC.md](file:///c:/Users/Sagar/Desktop/buildx/docs/TECH_SPEC.md)** | Full technical architecture, database schemas (SQLite + FTS5), vector embedding strategy (`text-embedding-004`), API endpoint specifications, and environment variables. |
-| **[UI_SPEC.md](file:///c:/Users/Sagar/Desktop/buildx/docs/UI_SPEC.md)** | Design system specification: light-first aesthetic, typography, component layout (Omnibar `⌘K`, Grounded Answer Container, Source Inspector), and UI state handling. |
-| **[ROADMAP.md](file:///c:/Users/Sagar/Desktop/buildx/docs/ROADMAP.md)** | Phased development roadmap from Hackathon MVP (0–24 hrs) through Prototype v1, Prototype v2, and Production scaling. |
-
----
-
-## 🛠️ Technology Stack Overview
-
-* **Frontend:** Next.js (React 19 / TypeScript), Tailwind CSS, Lucide React, Radix UI Primitives
-* **Backend / API:** Next.js Route Handlers / Lightweight FastAPI
-* **AI & Multi-Modal Vision:** Google Gemini 2.5/1.5 Flash (`@google/genai`)
-* **Vector Embeddings:** Google `text-embedding-004` (768 dimensions)
-* **Storage & Search:** SQLite / LibSQL with FTS5 Full-Text Search + Vector Index (`sqlite-vec` / Chroma)
-* **Document Processing:** PDF text parser (`pdfjs-dist` / `pdf-parse`) + Gemini Vision OCR for screenshots
-
----
-
-## 🎯 Core Development Principles
-
-* **Source-First Grounding:** Never guess or hallucinate. If the answer is not in the user's uploaded sources, state it clearly.
-* **Separation of Concerns:** Retrieval (database vector/lexical search) and Reasoning (Gemini generation) are isolated architectural layers.
-* **Light, Focused, Premium UX:** Fast, minimal, light-mode-first aesthetic with zero visual clutter or generic chatbot window paradigms.
+| **[USER_FLOWS.md](file:///c:/Users/Sagar/Desktop/buildx/docs/USER_FLOWS.md)** | Step-by-step user interaction flows: onboarding, file ingestion, hybrid natural-language search, source inspection, and organization. |
+| **[AI_SPEC.md](file:///c:/Users/Sagar/Desktop/buildx/docs/AI_SPEC.md)** | Google Gemini specification: strict separation between deterministic vector/lexical retrieval and Gemini reasoning, prompt templates, citation tokens `[SRC-#]`, and hallucination prevention. |
+| **[TECH_SPEC.md](file:///c:/Users/Sagar/Desktop/buildx/docs/TECH_SPEC.md)** | Full technical architecture: React + Vite + Tailwind frontend, Supabase Auth/Storage/Edge Functions, PostgreSQL + `pgvector` schemas, RLS policies, and hybrid search RPC. |
+| **[UI_SPEC.md](file:///c:/Users/Sagar/Desktop/buildx/docs/UI_SPEC.md)** | Design system specification: light-first aesthetic, Tailwind tokens, Omnibar (`⌘K`), two-tier Grounded Answer Container, split-screen source inspector, and UI state handling. |
+| **[ROADMAP.md](file:///c:/Users/Sagar/Desktop/buildx/docs/ROADMAP.md)** | Phased development roadmap from Hackathon MVP (0–24 hrs) through Prototype v1 (Gmail, Drive, WhatsApp), Prototype v2, and Production scaling. |
 
 ---
 
 ## 🚦 Current Status
-* **Phase:** Documentation & Architecture Complete (Pre-Implementation)
-* **Next Step:** Implement Hackathon MVP core stack as outlined in [`ROADMAP.md`](file:///c:/Users/Sagar/Desktop/buildx/docs/ROADMAP.md).
+* **Phase:** Documentation & Architecture Aligned with React/Vite + Supabase/pgvector + Gemini Stack
+* **Next Step:** Ready for implementation of the Hackathon MVP.

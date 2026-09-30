@@ -5,57 +5,54 @@
 ## 1. Roadmap Overview & Milestones
 
 ```
-┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│  Hackathon MVP  │ ──►  │  Prototype v1   │ ──►  │  Prototype v2   │ ──►  │ Production / V3 │
-│  (0 - 24 Hours) │      │  (Weeks 1 - 4)  │      │  (Months 2 - 3) │      │  (Months 4+)    │
-└─────────────────┘      └─────────────────┘      └─────────────────┘      └─────────────────┘
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│    Hackathon MVP    │ ──►  │    Prototype v1     │ ──►  │    Prototype v2     │ ──►  │   Production / V3   │
+│  (React + Supabase) │      │  (Cloud Connectors) │      │   (Agents & Graph)  │      │  (Enterprise Scale) │
+│    [0 - 24 Hours]   │      │    [Weeks 1 - 4]    │      │   [Months 2 - 3]    │      │    [Months 4+]      │
+└─────────────────────┘      └─────────────────────┘      └─────────────────────┘      └─────────────────────┘
 ```
 
 ---
 
 ## 2. Milestone Breakdown
 
-### Phase 1: Hackathon MVP (Target: 24-48 Hours)
-**Objective:** Deliver a working, end-to-end prototype capable of ingesting student files, executing hybrid search, and displaying Gemini-grounded answers with verbatim citations.
+### Phase 1: Hackathon MVP (Target: 24–48 Hours)
+**Objective:** Deliver a live, end-to-end working application with real Supabase infrastructure, vector retrieval, and Gemini-grounded synthesis.
 
-* **Core Scope & Deliverables:**
-  - [x] Multi-format ingestion pipeline (PDF, PNG/JPG screenshots, TXT notes).
-  - [x] Gemini Flash Vision integration for OCR and document understanding.
-  - [x] Lightweight embedding generation with `text-embedding-004`.
-  - [x] Hybrid search layer (vector cosine similarity + SQLite FTS5 lexical matching).
-  - [x] Grounded Answer Box with clear visual distinction between Direct Quotes and AI Synthesis.
-  - [x] Split-Screen / Modal Source Inspector with page jump navigation.
-  - [x] Sample student course dataset (Syllabus, Lecture Slide Screenshot, Lab Rubric) for instant live demo.
+* **Frontend:** React + Vite + TypeScript + Tailwind CSS with Omnibar (`⌘K`), Grounded Answer Box, and Split-Screen Source Inspector.
+* **Backend & DB:** Supabase PostgreSQL with `pgvector`, Full-Text Search (`tsvector`), Supabase Auth, and Supabase Storage for multi-modal uploads.
+* **AI Layer:** Supabase Edge Functions connecting securely to Google Gemini 2.5/1.5 Flash (Vision OCR & Synthesis) and `text-embedding-004` (embeddings) with zero client-side key exposure.
+* **Security:** Row Level Security (RLS) enabled on all tables; private storage buckets with signed URLs.
+* **Deliverable:** Live demo ready to ingest PDFs, screenshots, and notes, answering student queries with verifiable citations in under 3 seconds.
 
 ---
 
-### Phase 2: Prototype v1 (Post-Hackathon Polish: 1 Month)
-**Objective:** Reduce ingestion friction and increase daily active utility with ambient capture tools.
+### Phase 2: Prototype v1 (Ambient Connectors & Extensions: 1 Month)
+**Objective:** Broaden data ingestion vectors and automate student capture workflows.
 
 * **Features:**
-  - **Chrome Web Clipper Extension:** 1-click capture of Canvas/Blackboard web pages, research papers, and web articles directly into Recall.
-  - **Auto-Tagging & Course Classifier:** Automatically sorts incoming documents into course folders (`#CS210`, `#CHEM101`) using zero-shot classification.
-  - **Deadline Extraction Calendar View:** Aggregates all extracted deadlines from syllabi into an interactive student timeline.
-  - **Streaming AI Responses:** Server-Sent Events (SSE) for instant token-by-token synthesis generation.
+  - **Gmail & Google Drive Importers:** Server-side OAuth sync bringing course announcements, syllabus updates, and shared Drive PDFs into `sources`.
+  - **Chrome Web Clipper Extension:** 1-click capture of Canvas/Blackboard pages, online problem sets, and research articles.
+  - **WhatsApp & Telegram Forwarding Bot:** Students forward whiteboard photos and voice notes directly into Supabase Storage.
+  - **Auto-Tagging Course Classifier:** Automatically categorizes new uploads into course collections (`#CS210`, `#CHEM101`).
 
 ---
 
 ### Phase 3: Prototype v2 (Deep Intelligence & Proactivity: 2–3 Months)
-**Objective:** Transform Recall from a reactive search tool into a proactive study companion.
+**Objective:** Evolve Recall into an active, proactive study assistant.
 
 * **Features:**
-  - **Cross-Document Knowledge Graph:** Maps semantic clusters across lecture notes, homework rubrics, and textbook excerpts.
-  - **Telegram & WhatsApp Forwarding Bot:** Students forward screenshot photos and voice notes directly from mobile messaging apps into Recall.
-  - **Exam Cram Generator:** Generates custom practice quizzes and flashcard decks grounded exclusively in the student's own course materials.
-  - **Local On-Device OCR & Caching:** Pre-computes embeddings and OCR locally to reduce API costs and enable fast offline browsing.
+  - **Cross-Document Knowledge Graph:** Maps semantic links across lecture notes, homework rubrics, and textbook excerpts.
+  - **Automated Deadline & Exam Calendar:** Aggregates extracted deadlines into an interactive student calendar view.
+  - **Exam Cram Generator:** Generates custom practice questions grounded strictly in the student's uploaded materials.
+  - **Background Batch Processing:** Asynchronous queue for deep OCR and document indexing.
 
 ---
 
 ### Phase 4: Production Architecture & Scaling (4+ Months)
-**Objective:** Enterprise-grade reliability, multi-device synchronization, and automated cloud storage sync.
+**Objective:** Enterprise-grade reliability, multi-device synchronization, and offline capabilities.
 
 * **Features:**
-  - **Direct LMS & Cloud Sync:** Native OAuth integration with Google Drive, Notion, Microsoft OneDrive, and Canvas LMS.
-  - **Multi-Tenant Distributed Vector Database:** Migration to Qdrant or Pinecone with high-throughput horizontal scaling.
-  - **Fine-Grained Privacy & Encryption:** End-to-end encryption for stored documents with zero-knowledge metadata indexes.
-  - **Cross-Platform Native Apps:** Native desktop (Electron / Tauri) and mobile (React Native) companion apps with global keyboard hotkeys.
+  - **Advanced AI Agents:** Autonomous agents that cross-compare assignments against lecture content to identify knowledge gaps.
+  - **Fine-Grained Privacy & Encryption:** Zero-knowledge metadata indexing and end-to-end encryption for stored documents.
+  - **Cross-Platform Native Apps:** Native desktop (Electron / Tauri) and mobile (React Native) companion apps with global keyboard shortcuts.
