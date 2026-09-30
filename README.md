@@ -48,6 +48,28 @@ Recall serves as an active personal memory engine:
 ```
 buildx/
 ├── README.md                  # Project overview, architecture, and documentation index
+├── .env.example               # Environment variables template
+├── package.json               # Dependencies and build scripts
+├── vite.config.ts             # Vite configuration
+├── tailwind.config.js         # Tailwind CSS design system
+├── src/
+│   ├── lib/
+│   │   ├── supabase.ts        # Typed Supabase client (anon key only)
+│   │   └── status.ts          # Live backend connection diagnostic
+│   ├── services/              # Service layer for database entities
+│   │   ├── collectionsService.ts
+│   │   ├── sourcesService.ts
+│   │   ├── documentsService.ts
+│   │   ├── searchHistoryService.ts
+│   │   └── profileService.ts
+│   ├── types/                 # Database and entity TypeScript types
+│   │   ├── database.ts
+│   │   └── index.ts
+│   ├── App.tsx                # Main React application entry
+│   └── main.tsx               # DOM mount point
+├── supabase/
+│   └── migrations/
+│       └── 20261001000000_recall_initial_schema.sql  # Phase 1 Initial SQL Migration
 └── docs/
     ├── PRODUCT_VISION.md      # Philosophy, core principles, and boundaries
     ├── PRD.md                 # Product requirements, personas, and feature matrix
@@ -62,25 +84,69 @@ buildx/
 
 ---
 
-## ⚙️ Environment Variables & Local Development
+## 🚀 Local Setup & Quickstart Guide
 
-### Client (`.env.local` / Vite)
-```env
-VITE_SUPABASE_URL="https://your-project.supabase.co"
-VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsIn..."
-```
-
-### Server / Edge Secrets (`supabase/.env` or Dashboard Secrets)
-```env
-GEMINI_API_KEY="AIzaSy..."
-GEMINI_MODEL="gemini-2.5-flash"
-GEMINI_EMBEDDING_MODEL="text-embedding-004"
-SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsIn..."
-```
+### 1. Prerequisites
+* **Node.js:** v18.0 or newer (v24.x recommended)
+* **npm:** v9.0 or newer
+* **Supabase Account:** Free account at [supabase.com](https://supabase.com) (or local Supabase CLI)
 
 ---
 
-## 🚦 Current Project Status
+### 2. Configure Environment Variables
+Copy the `.env.example` file to `.env.local`:
+```bash
+cp .env.example .env.local
+```
 
-* **Status:** **PHASE 0: Documentation & Architecture Complete**
-* **Application Code Status:** No application code has been generated yet. All foundational specifications are locked and ready for implementation starting in **PHASE 1 (Supabase Foundation)**.
+Open `.env.local` and configure your Supabase project credentials:
+```env
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+> ⚠️ **Security Reminder:** Never place Supabase `service_role` keys or Gemini API keys inside `.env.local`. Client code must strictly use `VITE_SUPABASE_ANON_KEY`.
+
+---
+
+### 3. Run Database Migration
+1. Go to your **Supabase Dashboard** → **SQL Editor**.
+2. Open [`supabase/migrations/20261001000000_recall_initial_schema.sql`](file:///c:/Users/Sagar/Desktop/buildx/supabase/migrations/20261001000000_recall_initial_schema.sql).
+3. Paste and run the migration script. This will create:
+   - Tables: `profiles`, `collections`, `sources`, `documents`, `document_chunks`, `search_history`
+   - Row Level Security (RLS) policies on all tables
+   - Foreign keys, performance indexes, and Full-Text Search GIN index
+   - Automatic profile creation trigger upon `auth.users` signup
+   - Private storage bucket `user_files` with storage RLS policies
+
+---
+
+### 4. Configure Supabase Storage
+Verify in **Supabase Dashboard** → **Storage**:
+* A private bucket named `user_files` is created.
+* Allowed MIME types: `application/pdf`, `image/png`, `image/jpeg`, `text/plain`, `text/markdown`.
+* Maximum file size: `25MB`.
+
+---
+
+### 5. Start Development Server
+```bash
+npm install
+npm run dev
+```
+
+Visit `http://localhost:5173` to see the live Supabase Connection Diagnostic.
+
+---
+
+## 🚦 Current Implementation Status
+
+* **Status:** **PHASE 1: Supabase Foundation Complete ✅**
+* **Completed in Phase 1:**
+  - Initialized React 19 + Vite + TypeScript + Tailwind CSS project
+  - Configured typed `@supabase/supabase-js` client with environment guards
+  - Created complete PostgreSQL initial migration with strict RLS policies and indexes
+  - Created private Supabase Storage bucket configuration (`user_files`)
+  - Created structured TypeScript database entity types and service layer (`src/services/`)
+  - Built live Supabase connection diagnostic interface in `src/App.tsx`
+* **Next Phase:** **PHASE 2: Core Upload & Storage** (Multi-modal drag-and-drop ingestion).
